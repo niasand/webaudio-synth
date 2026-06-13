@@ -1,0 +1,1635 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEXUS · WebAudio 合成器工作站</title>
+<style>
+/* ============================================================
+   NEXUS — 深色硬件拟物主题
+   ============================================================ */
+:root{
+  --bg:#0a0c0f; --bg2:#0d0f13;
+  --panel:#15181d; --panel-2:#1c2026; --panel-top:#222730;
+  --bezel:#070809; --edge:#2b313a; --edge-hi:#3a4250;
+  --text:#cfd6dd; --muted:#7a828c; --dim:#565d66;
+  --accent:#3dd2c0; --accent-d:#1f8f82; --accent-2:#ff7a45; --accent-2-d:#b04a22;
+  --warn:#ffcb47; --danger:#ff5d5d;
+  --led-on:#46e0b0; --led-off:#1e2a28;
+  --radius:8px; --radius-s:5px;
+  --shadow:0 4px 14px rgba(0,0,0,.5);
+  --inset:inset 0 1px 3px rgba(0,0,0,.7), inset 0 -1px 0 rgba(255,255,255,.02);
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html,body{height:100%;}
+body{
+  background:
+    radial-gradient(1200px 600px at 50% -10%, #16191f 0%, var(--bg) 60%),
+    var(--bg);
+  color:var(--text);
+  font-family:var(--font-ui);
+  font-size:12px;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+  user-select:none;
+}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-thumb{background:#2a2f37;border-radius:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+
+/* ---------- layout ---------- */
+#app{display:flex; flex-direction:column; height:100vh; width:100vw; padding:8px; gap:8px;}
+.topbar{
+  display:flex; align-items:center; gap:14px; padding:8px 14px;
+  background:linear-gradient(180deg,var(--panel-top),var(--panel));
+  border:1px solid var(--edge); border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  flex:0 0 auto;
+}
+.brand{display:flex; align-items:center; gap:10px; padding-right:14px; border-right:1px solid var(--edge);}
+.brand .logo{
+  width:30px;height:30px;border-radius:7px;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  display:flex;align-items:center;justify-content:center;
+  font-weight:800;color:#08110f;font-size:15px;
+  box-shadow:0 0 12px rgba(61,210,192,.4);
+}
+.brand h1{font-size:15px;letter-spacing:2px;font-weight:700;}
+.brand h1 small{display:block;font-size:9px;color:var(--muted);letter-spacing:1px;font-weight:500;margin-top:1px;}
+.topbar .grp{display:flex;align-items:center;gap:6px;}
+.topbar .lbl{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-right:4px;}
+.topbar .spacer{flex:1;}
+.led{width:8px;height:8px;border-radius:50%;background:var(--led-off);box-shadow:inset 0 0 2px rgba(0,0,0,.8);}
+.led.on{background:var(--led-on);box-shadow:0 0 6px var(--led-on),inset 0 0 2px rgba(0,0,0,.4);}
+select,input[type=text],input[type=number]{
+  background:var(--bezel);color:var(--text);border:1px solid var(--edge);
+  border-radius:4px;padding:5px 8px;font-family:var(--font-mono);font-size:11px;outline:none;
+}
+select:focus,input:focus{border-color:var(--accent-d);}
+button.btn{
+  background:linear-gradient(180deg,var(--panel-top),var(--panel-2));
+  color:var(--text);border:1px solid var(--edge);border-radius:5px;
+  padding:6px 12px;font-size:11px;font-weight:600;cursor:pointer;
+  font-family:var(--font-ui);letter-spacing:.5px;
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 2px 4px rgba(0,0,0,.4);
+  transition:all .1s;
+}
+button.btn:hover{border-color:var(--edge-hi);color:#fff;}
+button.btn:active{transform:translateY(1px);}
+button.btn.primary{background:linear-gradient(180deg,#2bb5a4,var(--accent-d));color:#04130f;border-color:#3dd2c0;}
+button.btn.danger{background:linear-gradient(180deg,#e05555,#a83333);color:#fff;border-color:#ff7a7a;}
+button.btn.rec{background:radial-gradient(circle,#ff3b3b,#a01818);color:#fff;border-color:#ff5d5d;}
+button.btn.rec.active{box-shadow:0 0 10px #ff3b3b;animation:recpulse 1.2s infinite;}
+@keyframes recpulse{0%,100%{box-shadow:0 0 6px #ff3b3b;}50%{box-shadow:0 0 16px #ff3b3b;}}
+button.btn.sm{padding:4px 8px;font-size:10px;}
+
+/* ---------- workspace ---------- */
+.workspace{
+  flex:1 1 auto; min-height:0;
+  display:grid;
+  grid-template-columns: 1fr 1fr 1fr 320px;
+  grid-template-rows: auto auto 1fr;
+  gap:8px;
+  grid-template-areas:
+    "osc   filter env   viz"
+    "lfo   fx     fx    viz"
+    "seq   seq    seq    seq";
+}
+.panel{
+  background:linear-gradient(180deg,var(--panel-top) 0%, var(--panel) 30%);
+  border:1px solid var(--edge); border-radius:var(--radius);
+  box-shadow:var(--shadow), var(--inset);
+  padding:10px; position:relative;
+  display:flex; flex-direction:column; gap:8px; min-height:0;
+}
+.panel .ph{ /* panel header */
+  display:flex; align-items:center; gap:8px; margin:-2px -2px 2px;
+}
+.panel .ph .pt{ /* title */
+  font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--accent);
+  font-weight:700;
+}
+.panel .ph .ps{flex:1;}
+.panel .ph .sub{font-size:9px;color:var(--muted);letter-spacing:1px;}
+.panel .row{display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap;}
+.panel .col{display:flex; flex-direction:column; gap:6px;}
+
+.area-osc{grid-area:osc;} .area-filter{grid-area:filter;} .area-env{grid-area:env;}
+.area-lfo{grid-area:lfo;} .area-fx{grid-area:fx;} .area-viz{grid-area:viz;}
+.area-seq{grid-area:seq;}
+
+/* osc stack */
+.osc-stack{display:flex; flex-direction:column; gap:6px; flex:1;}
+.osc-unit{
+  background:var(--bezel); border:1px solid #20242b; border-radius:6px; padding:7px 9px;
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+}
+.osc-unit .tag{font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--accent-2);width:26px;}
+.osc-knobs{display:flex;gap:6px;align-items:flex-end;flex:1;flex-wrap:wrap;}
+
+/* knob */
+.knob{display:flex;flex-direction:column;align-items:center;gap:2px;width:46px;}
+.knob .dial{position:relative;width:42px;height:42px;cursor:ns-resize;}
+.knob .dial svg{position:absolute;inset:0;}
+.knob .val{
+  font-family:var(--font-mono);font-size:9px;color:var(--accent);
+  background:#0a0d10;border:1px solid #20242b;border-radius:3px;
+  padding:1px 0;width:100%;text-align:center;letter-spacing:.3px;
+  min-height:13px;line-height:11px;white-space:nowrap;overflow:hidden;
+}
+.knob .lab{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;line-height:1.1;height:18px;}
+.knob.on .val{color:var(--accent);}
+.knob.off{opacity:.45;}
+
+/* mini selects / toggles inline */
+.sel{background:var(--bezel);color:var(--text);border:1px solid #20242b;border-radius:4px;padding:3px 4px;font-size:10px;font-family:var(--font-mono);outline:none;}
+.sel option{background:#15181d;}
+.toggle{
+  position:relative;width:30px;height:16px;border-radius:9px;cursor:pointer;
+  background:#0a0d10;border:1px solid #20242b;transition:all .15s;flex:0 0 auto;
+}
+.toggle::after{content:"";position:absolute;top:1px;left:1px;width:12px;height:12px;border-radius:50%;background:var(--dim);transition:all .15s;}
+.toggle.on{background:linear-gradient(90deg,#1f8f82,#3dd2c0);border-color:#3dd2c0;}
+.toggle.on::after{left:15px;background:#eafff9;box-shadow:0 0 5px #3dd2c0;}
+.chk{display:flex;align-items:center;gap:5px;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+
+/* env graph */
+.env-wrap{display:flex;gap:8px;align-items:flex-start;}
+.env-graph{flex:0 0 auto;width:130px;height:64px;background:var(--bezel);border:1px solid #20242b;border-radius:5px;position:relative;overflow:hidden;}
+.env-graph canvas{width:100%;height:100%;display:block;}
+.env-knobs{display:flex;gap:5px;flex-wrap:wrap;}
+
+/* fx */
+.fx-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;flex:1;}
+.fx-unit{
+  background:var(--bezel);border:1px solid #20242b;border-radius:6px;padding:7px;
+  display:flex;flex-direction:column;gap:6px;align-items:center;min-height:0;
+}
+.fx-unit .ft{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--accent-2);align-self:flex-start;font-weight:700;}
+.fx-unit .fk{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;}
+.fx-unit .hdr{display:flex;align-items:center;justify-content:space-between;width:100%;}
+
+/* viz */
+.area-viz{padding:8px;}
+.viz-canvas-wrap{flex:1;display:flex;flex-direction:column;gap:6px;min-height:0;}
+.viz-canvas-wrap canvas{background:#070a0d;border:1px solid #20242b;border-radius:5px;width:100%;}
+#cvScope{flex:1;min-height:50px;} #cvFFT{flex:1.4;min-height:70px;}
+.viz-foot{display:flex;gap:8px;align-items:center;font-family:var(--font-mono);font-size:10px;color:var(--muted);}
+.vumeter{flex:1;height:10px;background:#0a0d10;border:1px solid #20242b;border-radius:3px;overflow:hidden;position:relative;}
+.vumeter i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#3dd2c0 0%,#ffcb47 75%,#ff5d5d 100%);transition:width .05s linear;}
+
+/* sequencer */
+.area-seq{padding:8px 10px;}
+.seq-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.seq-grid{display:flex;flex-direction:column;gap:3px;overflow:auto;max-height:150px;padding:2px;}
+.seq-row{display:flex;align-items:center;gap:2px;flex:0 0 auto;}
+.seq-row .rn{width:42px;font-size:9px;font-family:var(--font-mono);color:var(--muted);text-align:right;padding-right:4px;}
+.seq-row .note{width:42px;}
+.step{
+  width:30px;height:22px;border-radius:3px;cursor:pointer;flex:0 0 auto;
+  background:#0c0f13;border:1px solid #20242b;transition:all .08s;position:relative;
+}
+.step.beat{border-color:#2a323d;}
+.step.on{background:linear-gradient(180deg,var(--accent-d),#156d63);border-color:var(--accent);box-shadow:0 0 6px rgba(61,210,192,.4) inset;}
+.step.playing{outline:1px solid var(--warn);outline-offset:-1px;}
+.step.cur{box-shadow:0 0 8px var(--warn);}
+.seq-row[data-muted="1"]{opacity:.4;}
+
+/* keyboard */
+.kb-bar{
+  flex:0 0 auto;background:linear-gradient(180deg,var(--panel-top),var(--panel));
+  border:1px solid var(--edge);border-radius:var(--radius);box-shadow:var(--shadow);
+  padding:8px;display:flex;gap:10px;align-items:stretch;
+}
+.keyboard{position:relative;flex:1;height:96px;background:var(--bezel);border:1px solid #20242b;border-radius:5px;overflow:hidden;}
+.kb-inner{position:absolute;left:0;top:0;height:100%;white-space:nowrap;transition:transform .12s;}
+.key{position:absolute;top:0;height:100%;cursor:pointer;border-radius:0 0 3px 3px;}
+.key.white{background:linear-gradient(180deg,#e6ebf0,#c2c8d0);border:1px solid #8a929c;border-top:none;z-index:1;}
+.key.white.active{background:linear-gradient(180deg,var(--accent),var(--accent-d));}
+.key.black{background:linear-gradient(180deg,#2a2e35,#0d0f12);border:1px solid #000;border-top:none;z-index:2;height:62%;}
+.key.black.active{background:linear-gradient(180deg,var(--accent-2),var(--accent-2-d));}
+.key .kl{position:absolute;bottom:3px;left:0;right:0;text-align:center;font-size:8px;color:#5a626c;font-family:var(--font-mono);pointer-events:none;}
+.key.white .kl{color:#7a828c;}
+.kb-side{display:flex;flex-direction:column;gap:6px;justify-content:space-between;width:130px;flex:0 0 auto;}
+.wheels{display:flex;gap:6px;}
+.wheel{flex:1;background:var(--bezel);border:1px solid #20242b;border-radius:5px;padding:4px;display:flex;flex-direction:column;align-items:center;gap:3px;}
+.wheel .wl{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+.wheel .wd{width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#3a4250,#15181d);border:1px solid #000;position:relative;cursor:ns-resize;}
+.wheel .wd i{position:absolute;left:50%;top:50%;width:2px;height:13px;background:var(--accent);transform-origin:bottom center;border-radius:1px;}
+.xypad{flex:1;background:var(--bezel);border:1px solid #20242b;border-radius:5px;position:relative;overflow:hidden;min-height:0;}
+.xypad .dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);transform:translate(-50%,-50%);pointer-events:none;}
+.xypad .xl{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--muted);}
+.octave-ctl{display:flex;align-items:center;gap:5px;background:var(--bezel);border:1px solid #20242b;border-radius:5px;padding:4px 6px;}
+.octave-ctl .ov{font-family:var(--font-mono);font-size:13px;color:var(--accent);min-width:24px;text-align:center;}
+
+/* splash */
+#splash{
+  position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 50% 40%,#14171d,#070809);
+  transition:opacity .5s;
+}
+#splash.hide{opacity:0;pointer-events:none;}
+.splash-card{text-align:center;max-width:380px;padding:30px;}
+.splash-card .big{
+  font-size:34px;font-weight:800;letter-spacing:6px;
+  background:linear-gradient(120deg,var(--accent),var(--accent-2));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.splash-card .tagline{color:var(--muted);font-size:12px;letter-spacing:2px;margin:6px 0 24px;text-transform:uppercase;}
+.splash-card p{color:var(--text);font-size:12px;line-height:1.7;margin-bottom:20px;}
+.splash-card .feat{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:22px;}
+.splash-card .feat span{font-size:9px;color:var(--muted);border:1px solid var(--edge);padding:3px 8px;border-radius:10px;letter-spacing:.5px;}
+.splash-card .start{padding:14px 40px;font-size:14px;}
+.hint{margin-top:14px;font-size:10px;color:var(--dim);}
+
+/* toast */
+#toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a1d22;border:1px solid var(--edge);color:var(--text);padding:9px 18px;border-radius:6px;font-size:12px;opacity:0;transition:all .25s;z-index:60;box-shadow:var(--shadow);}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* responsive nudge */
+@media (max-width:1200px){
+  .workspace{grid-template-columns:1fr 1fr;}
+  .workspace{grid-template-areas:"osc filter" "env lfo" "fx fx" "viz viz" "seq seq";}
+  .area-viz{min-height:160px;}
+}
+</style>
+</head>
+<body>
+
+<!-- ===================== SPLASH ===================== -->
+<div id="splash">
+  <div class="splash-card">
+    <div class="big">NEXUS</div>
+    <div class="tagline">WebAudio 合成器工作站</div>
+    <p>纯原生 Web Audio API · 零依赖单文件 · 多振荡器减法合成 · 全效果链 · 步进音序器 · 实时可视化</p>
+    <div class="feat"><span>3 OSC + Unison</span><span>双 ADSR</span><span>LFO 路由</span><span>失真/Bitcrush</span><span>合唱/延迟/混响</span><span>音序器</span><span>MIDI</span><span>录音</span></div>
+    <button class="btn primary start" id="startBtn">▸ 启动音频引擎</button>
+    <div class="hint">浏览器策略要求用户手势后才能播放声音。键盘 <b>A W S E D F T G Y H U J K</b> 弹奏，界面 <b>− / +</b> 按钮切八度。</div>
+  </div>
+</div>
+
+<!-- ===================== APP ===================== -->
+<div id="app">
+
+  <!-- topbar -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">N</div>
+      <h1>NEXUS<small>SYNTH WORKSTATION</small></h1>
+    </div>
+    <div class="grp"><span class="led" id="ledAudio"></span><span class="lbl">AUDIO</span></div>
+    <div class="grp"><span class="led" id="ledMidi"></span><span class="lbl">MIDI</span></div>
+    <div class="grp">
+      <span class="lbl">PRESET</span>
+      <select id="presetSel" style="min-width:150px;"></select>
+    </div>
+    <div class="grp">
+      <button class="btn sm" id="savePreset">保存</button>
+      <button class="btn sm" id="exportPreset">导出</button>
+      <button class="btn sm" id="importPreset">导入</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="grp"><span class="lbl">MASTER</span><div style="width:120px;" id="knobMaster"></div></div>
+    <div class="grp">
+      <button class="btn rec sm" id="recBtn">● 录音</button>
+      <button class="btn sm" id="panicBtn">PANIC</button>
+    </div>
+  </header>
+
+  <!-- workspace -->
+  <main class="workspace">
+
+    <section class="panel area-osc">
+      <div class="ph"><span class="pt">振荡器 OSCILLATORS</span><span class="ps"></span><span class="sub">3 × 多波形 + Unison</span></div>
+      <div class="osc-stack" id="oscStack"></div>
+      <div class="row" style="gap:14px;">
+        <div class="chk"><div class="toggle" id="tSub"></div>SUB OSC</div>
+        <div style="width:54px;" id="knobSub"></div>
+        <div class="chk"><div class="toggle" id="tNoise"></div>NOISE</div>
+        <div style="width:54px;" id="knobNoise"></div>
+        <div style="flex:1"></div>
+        <div class="chk"><span class="lbl">GLIDE</span></div>
+        <div style="width:60px;" id="knobGlide"></div>
+        <div class="chk"><span class="lbl">BEND</span></div>
+        <div style="width:54px;" id="knobBend"></div>
+      </div>
+    </section>
+
+    <section class="panel area-filter">
+      <div class="ph"><span class="pt">滤波器 FILTER</span><span class="ps"></span><span class="sub">Biquad · 包络调制</span></div>
+      <div class="row" style="justify-content:center;">
+        <div class="knob" id="kFilterCutoff"></div>
+        <div class="knob" id="kFilterReso"></div>
+        <div class="knob" id="kFilterEnvAmt"></div>
+      </div>
+      <div class="row" style="justify-content:center;gap:8px;margin-top:4px;">
+        <select class="sel" id="filterType">
+          <option value="lowpass">LOWPASS</option>
+          <option value="highpass">HIGHPASS</option>
+          <option value="bandpass">BANDPASS</option>
+          <option value="notch">NOTCH</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="panel area-env">
+      <div class="ph"><span class="pt">包络 ENVELOPES</span><span class="ps"></span><span class="sub">AMP + FILTER ADSR</span></div>
+      <div class="env-wrap">
+        <div class="col" style="flex:1;">
+          <div class="sub" style="font-size:9px;color:var(--accent-2);letter-spacing:1px;">AMP</div>
+          <div class="env-graph"><canvas id="cvAmpEnv"></canvas></div>
+          <div class="env-knobs" id="ampEnvKnobs"></div>
+        </div>
+        <div class="col" style="flex:1;">
+          <div class="sub" style="font-size:9px;color:var(--accent-2);letter-spacing:1px;">FILTER</div>
+          <div class="env-graph"><canvas id="cvFilterEnv"></canvas></div>
+          <div class="env-knobs" id="filterEnvKnobs"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel area-lfo">
+      <div class="ph"><span class="pt">LFO</span><span class="ps"></span><span class="sub">低频振荡器 · 多目标路由</span></div>
+      <div class="row" style="align-items:center;">
+        <div class="chk"><div class="toggle" id="tLfo"></div>ON</div>
+        <select class="sel" id="lfoWave" style="width:74px;">
+          <option value="sine">SINE</option><option value="triangle">TRI</option>
+          <option value="square">SQUARE</option><option value="sawtooth">SAW</option>
+        </select>
+        <div class="knob" id="kLfoFreq"></div>
+        <div style="flex:1"></div>
+      </div>
+      <div class="row" style="gap:14px;">
+        <div class="col"><span class="lbl" style="font-size:9px;color:var(--muted);text-transform:uppercase;">→ PITCH</span><div style="width:60px;" id="kLfoPitch"></div></div>
+        <div class="col"><span class="lbl" style="font-size:9px;color:var(--muted);text-transform:uppercase;">→ CUTOFF</span><div style="width:60px;" id="kLfoCutoff"></div></div>
+        <div class="col"><span class="lbl" style="font-size:9px;color:var(--muted);text-transform:uppercase;">→ AMP</span><div style="width:60px;" id="kLfoAmp"></div></div>
+      </div>
+    </section>
+
+    <section class="panel area-fx">
+      <div class="ph"><span class="pt">效果链 FX CHAIN</span><span class="ps"></span><span class="sub">失真 → Bitcrush → 合唱 → 延迟 → 混响 → EQ</span></div>
+      <div class="fx-grid" id="fxGrid"></div>
+    </section>
+
+    <section class="panel area-viz">
+      <div class="ph"><span class="pt">可视化 SCOPE / SPECTRUM</span><span class="ps"></span></div>
+      <div class="viz-canvas-wrap">
+        <canvas id="cvScope"></canvas>
+        <canvas id="cvFFT"></canvas>
+        <div class="viz-foot">
+          <span>VU</span><div class="vumeter"><i id="vuBar"></i></div>
+          <span id="cpuLoad">—</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel area-seq">
+      <div class="seq-head">
+        <span class="pt" style="font-size:10px;letter-spacing:2px;color:var(--accent);font-weight:700;">步进音序器 SEQUENCER</span>
+        <div class="chk"><div class="toggle" id="tSeq"></div>RUN</div>
+        <div class="grp"><span class="lbl">STEPS</span><select class="sel" id="seqSteps"><option>16</option><option>32</option></select></div>
+        <div style="width:54px;" id="knobSeqBpm"></div>
+        <div class="chk"><span class="lbl">SWING</span></div>
+        <div style="width:54px;" id="knobSeqSwing"></div>
+        <div class="grp"><span class="lbl">TRACK</span><select class="sel" id="seqTrack"></select></div>
+        <button class="btn sm" id="seqClear">清空</button>
+        <div class="spacer" style="flex:1"></div>
+        <span class="sub" style="font-size:9px;color:var(--muted);">点击格子开关 · 拖动滚轮改音高</span>
+      </div>
+      <div class="seq-grid" id="seqGrid"></div>
+    </section>
+
+  </main>
+
+  <!-- keyboard bar -->
+  <footer class="kb-bar">
+    <div class="kb-side">
+      <div class="octave-ctl">
+        <button class="btn sm" id="octDown">−</button>
+        <span class="lbl" style="font-size:9px;">OCT</span>
+        <span class="ov" id="octVal">C4</span>
+        <button class="btn sm" id="octUp">+</button>
+      </div>
+      <div class="wheels">
+        <div class="wheel"><span class="wl">PITCH</span><div class="wd" id="pitchWheel"><i></i></div></div>
+        <div class="wheel"><span class="wl">MOD</span><div class="wd" id="modWheel"><i></i></div></div>
+      </div>
+    </div>
+    <div class="keyboard" id="keyboard"><div class="kb-inner" id="kbInner"></div></div>
+    <div class="kb-side" style="width:160px;">
+      <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;">XY PAD<br><span style="color:var(--dim);">X→滤波截止 · Y→共振</span></div>
+      <div class="xypad" id="xyPad"><div class="dot" id="xyDot"></div></div>
+    </div>
+  </footer>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ============================================================
+   NEXUS — WebAudio 合成器工作站  (单文件 · 零依赖)
+   架构：Util → DSP → Envelope → Voice → VoiceManager → AudioEngine
+        → State → Knob/XYPad → VirtualKeyboard → Sequencer
+        → Visualizer → Recorder → MIDI → Presets → UI → App
+   ============================================================ */
+(function(){
+
+/* ---------- Util ---------- */
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const map=(v,im,iM,om,oM)=>om+(v-im)*(oM-om)/(iM-im);
+const mtof=m=>440*Math.pow(2,(m-69)/12);
+const now=()=>performance.now();
+function toast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),1800);
+}
+/* 平滑地改 AudioParam，避免咔哒。统一入口：先 cancel + 锚定当前值，再 ramp */
+function ramp(param,val,t,dur,shape){
+  shape=shape||'lin';
+  dur=Math.max(0.0001,dur||0.01);
+  param.cancelScheduledValues(t);
+  param.setValueAtTime(Math.abs(param.value)<1e-7?1e-7:param.value,t);
+  if(shape==='exp'){ param.exponentialRampToValueAtTime(Math.max(val,1e-5),t+dur); }
+  else { param.linearRampToValueAtTime(val,t+dur); }
+}
+function el(tag,cls,html){const e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e;}
+
+/* ---------- DSP：零依赖下的波形/IR/曲线/Worklet ---------- */
+const DSP={
+  noiseBuf:null,
+  makeNoise(ctx,sec){
+    const len=ctx.sampleRate*(sec||2), buf=ctx.createBuffer(1,len,ctx.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=Math.random()*2-1;
+    return buf;
+  },
+  /* 程序生成混响 IR：指数衰减噪声 + 立体声去相关 + 一阶低通暖化 */
+  makeIR(ctx,cfg){
+    cfg=cfg||{}; const sec=cfg.sec||2.0, decay=cfg.decay||2.0, rate=ctx.sampleRate, len=Math.floor(rate*sec);
+    const ir=ctx.createBuffer(2,len,rate);
+    for(let ch=0;ch<2;ch++){
+      const d=ir.getChannelData(ch); let lp=0, prev=0;
+      for(let i=0;i<len;i++){
+        let n=Math.random()*2-1;
+        const env=Math.pow(1-i/len,decay);
+        lp=lp+0.30*(n-lp); n=lp;                 // 低通暖化
+        d[i]=n*env;
+      }
+    }
+    return ir;
+  },
+  /* WaveShaper 失真曲线（经典过载） */
+  distCurve(amount){
+    const n=2048, c=new Float32Array(n), k=Math.max(0.1,amount), deg=Math.PI/180;
+    for(let i=0;i<n;i++){ const x=(i*2)/n-1; c[i]=(3+k)*x*20*deg/(Math.PI+k*Math.abs(x)); }
+    return c;
+  },
+  /* Bitcrusher AudioWorklet（内联 blob URL，零依赖） */
+  workletOk:null,
+  async ensureWorklet(ctx){
+    if(this.workletOk!==null) return this.workletOk;
+    try{
+      const src=`class Bitcrusher extends AudioWorkletProcessor{
+        static get parameterDescriptors(){return[
+          {name:'bits',defaultValue:8,minValue:1,maxValue:16,automationRate:'k-rate'},
+          {name:'normfreq',defaultValue:0.45,minValue:0.001,maxValue:1,automationRate:'k-rate'}
+        ];}
+        constructor(){super();this.phase=0;this.last=0;}
+        process(ins,outs,ps){
+          const bits=(ps.bits.length?ps.bits[0]:8), nf=(ps.normfreq.length?ps.normfreq[0]:0.45);
+          const step=Math.pow(0.5,bits);
+          for(let c=0;c<ins[0].length;c++){
+            const x=ins[0][c], y=outs[0][c];
+            for(let i=0;i<x.length;i++){
+              this.phase+=nf;
+              if(this.phase>=1){this.phase-=1; this.last=step*Math.floor(x[i]/step+0.5);}
+              y[i]=this.last;
+            }
+          }
+          return true;
+        }}
+        registerProcessor('bitcrusher',Bitcrusher);`;
+      const blob=new Blob([src],{type:'application/javascript'});
+      await ctx.audioWorklet.addModule(URL.createObjectURL(blob));
+      this.workletOk=true;
+    }catch(e){ console.warn('[NEXUS] AudioWorklet 不可用，Bitcrush 降级',e); this.workletOk=false; }
+    return this.workletOk;
+  }
+};
+
+/* ---------- Envelope：ADSR，对任意 AudioParam 触发 ---------- */
+class Envelope{
+  constructor(o){ this.a=o.a; this.d=o.d; this.s=o.s; this.r=o.r; }
+  set(o){ if(o.a!=null)this.a=o.a; if(o.d!=null)this.d=o.d; if(o.s!=null)this.s=o.s; if(o.r!=null)this.r=o.r; }
+  attack(param,t,peak){
+    peak=peak==null?1:peak;
+    const aT=Math.max(0.001,this.a), dT=Math.max(0.001,this.d);
+    param.cancelScheduledValues(t);
+    param.setValueAtTime(0.0001,t);
+    param.linearRampToValueAtTime(peak,t+aT);
+    param.linearRampToValueAtTime(Math.max(0.0001,peak*this.s),t+aT+dT);
+  }
+  release(param,t){
+    param.cancelScheduledValues(t);
+    const cur=param.value;
+    param.setValueAtTime(Math.max(0.0001,cur),t);
+    const rT=Math.max(0.005,this.r);
+    /* 用 setTargetAtTime 平滑释放，避免短 release 的 click */
+    param.setTargetAtTime(0.0001,t,rT*0.28);
+  }
+  releaseDur(){ return this.r*1.6+0.05; }
+}
+
+/* ---------- Voice：单个声部节点链 ---------- */
+class Voice{
+  constructor(eng,note,vel,P,bend){
+    this.eng=eng; this.ctx=eng.ctx; this.note=note; this.vel=vel; this.P=P; this.bend=bend||0;
+    this.state='idle'; this.startT=0; this._all=[]; this._srcs=[]; this._disposal=null;
+    this.build();
+  }
+  baseFreq(){ return mtof(this.note); }
+  oscFreq(op){ return this.baseFreq()*Math.pow(2,op.octave)*Math.pow(2,op.semi/12); }
+  build(){
+    const ctx=this.ctx, P=this.P;
+    /* 振荡器混合（包络前的 sum gain） */
+    this.mix=ctx.createGain(); this.mix.gain.value=1; this._all.push(this.mix);
+    this.lfoToPitch=ctx.createGain(); this.lfoToPitch.gain.value=0; this._all.push(this.lfoToPitch);
+    /* 三个振荡器 + unison */
+    for(let oi=0;oi<3;oi++){
+      const op=P['osc'+oi]; if(!op.on) continue;
+      const og=ctx.createGain(); og.gain.value=op.level; this._all.push(og); og.connect(this.mix);
+      const uni=Math.max(1,op.unison|0), spread=op.spread;
+      for(let u=0;u<uni;u++){
+        const osc=ctx.createOscillator();
+        if(op.wave==='custom'&&op.pw) osc.setPeriodicWave(op.pw); else osc.type=op.wave;
+        osc.frequency.value=this.oscFreq(op);
+        const det=uni===1?op.detune:op.detune+((u/(uni-1))-0.5)*spread*2;
+        osc.detune.value=det;
+        this.lfoToPitch.connect(osc.detune);
+        osc.connect(og); osc.start(); this._srcs.push(osc);
+      }
+    }
+    /* 噪音 */
+    if(P.noise.on){
+      const ng=ctx.createGain(); ng.gain.value=P.noise.level; this._all.push(ng); ng.connect(this.mix);
+      const ns=ctx.createBufferSource(); ns.buffer=this.eng.noiseBuf; ns.loop=true;
+      ns.connect(ng); ns.start(); this._srcs.push(ns);
+    }
+    /* Sub 振荡器（低八度 sine） */
+    if(P.sub.on){
+      const sg=ctx.createGain(); sg.gain.value=P.sub.level; this._all.push(sg); sg.connect(this.mix);
+      const so=ctx.createOscillator(); so.type='sine'; so.frequency.value=this.baseFreq()/2;
+      so.connect(sg); so.start(); this._srcs.push(so);
+    }
+    /* ---- 滤波器 + ConstantSource 加和调制（核心：避免 AudioParam 冲突） ---- */
+    this.filter=ctx.createBiquadFilter();
+    this.filter.type=P.filter.type; this.filter.Q.value=P.filter.reso; this._all.push(this.filter);
+
+    this.cutoffBase=ctx.createConstantSource(); this.cutoffBase.offset.value=P.filter.cutoff;
+    this.cutoffBase.connect(this.filter.frequency); this.cutoffBase.start(); this._srcs.push(this.cutoffBase);
+
+    this.envAmtSrc=ctx.createConstantSource(); this.envAmtSrc.offset.value=P.filter.envAmt;
+    this.envGain=ctx.createGain(); this.envGain.gain.value=0.0001; /* 由 FilterEnv 驱动 0→peak→sustain */
+    this.envAmtSrc.connect(this.envGain); this.envGain.connect(this.filter.frequency);
+    this.envAmtSrc.start(); this._srcs.push(this.envAmtSrc); this._all.push(this.envGain);
+
+    this.lfoToCutoff=ctx.createGain(); this.lfoToCutoff.gain.value=0;
+    this.lfoToCutoff.connect(this.filter.frequency); this._all.push(this.lfoToCutoff);
+
+    this.mix.connect(this.filter);
+
+    /* ---- 振幅包络增益 ---- */
+    this.amp=ctx.createGain(); this.amp.gain.value=0.0001; this._all.push(this.amp);
+    this.filter.connect(this.amp);
+    this.amp.connect(this.eng.voiceBus);
+
+    /* ---- LFO（per-voice）---- */
+    this.lfoToAmp=ctx.createGain(); this.lfoToAmp.gain.value=0; this._all.push(this.lfoToAmp); this.lfoToAmp.connect(this.amp.gain);
+    if(P.lfo.on){
+      this.lfo=ctx.createOscillator(); this.lfo.type=P.lfo.wave; this.lfo.frequency.value=P.lfo.freq;
+      this.lfo.start(); this._srcs.push(this.lfo);
+      this.lfo.connect(this.lfoToPitch); this.lfoToPitch.gain.value=P.lfo.toPitch;
+      this.lfo.connect(this.lfoToCutoff); this.lfoToCutoff.gain.value=P.lfo.toCutoff;
+      this.lfo.connect(this.lfoToAmp); this.lfoToAmp.gain.value=P.lfo.toAmp;
+    }
+
+    this.ampEnv=new Envelope(P.ampEnv);
+    this.fltEnv=new Envelope(P.filterEnv);
+  }
+  _placeholder_unused(){}
+  noteOn(t){
+    this.startT=t; this.state='on';
+    const peak=clamp(this.vel,0.05,1);
+    this.ampEnv.attack(this.amp.gain,t,peak);
+    this.fltEnv.attack(this.envGain.gain,t,1);
+  }
+  noteOff(t){
+    if(this.state!=='on') return;
+    this.state='rel';
+    this.ampEnv.release(this.amp.gain,t);
+    this.fltEnv.release(this.envGain.gain,t);
+    const wait=(this.ampEnv.releaseDur())*1000+40;
+    if(this._disposal) clearTimeout(this._disposal);
+    this._disposal=setTimeout(()=>this.dispose(),wait);
+  }
+  fastRelease(t){ /* voice stealing / panic */
+    if(this.state==='dead') return;
+    this.state='rel';
+    ramp(this.amp.gain,0.0001,t,0.03);
+    ramp(this.envGain.gain,0.0001,t,0.03);
+    if(this._disposal) clearTimeout(this._disposal);
+    this._disposal=setTimeout(()=>this.dispose(),70);
+  }
+  /* 实时参数更新（对当前发声声部立即生效） */
+  updateParam(path,val){
+    const P=this.P;
+    if(path==='filter.cutoff'){ this.cutoffBase.offset.setTargetAtTime(val,this.ctx.currentTime,0.02); }
+    else if(path==='filter.reso'){ this.filter.Q.setTargetAtTime(val,this.ctx.currentTime,0.02); }
+    else if(path==='filter.envAmt'){ this.envAmtSrc.offset.setTargetAtTime(val,this.ctx.currentTime,0.02); }
+    else if(path==='filter.type'){ try{this.filter.type=val;}catch(e){} }
+    else if(path==='ampEnv'){ this.ampEnv.set(val); }
+    else if(path==='filterEnv'){ this.fltEnv.set(val); }
+    else if(path==='lfo.on'){ /* 路由变化需重建，仅记入下次触发 */ }
+    else if(path==='lfo.freq'){ if(this.lfo) this.lfo.frequency.setTargetAtTime(val,this.ctx.currentTime,0.02); }
+    else if(path==='lfo.wave'){ if(this.lfo) try{this.lfo.type=val;}catch(e){} }
+    else if(path==='lfo.toPitch'){ if(this.lfoToPitch) this.lfoToPitch.gain.setTargetAtTime(val,this.ctx.currentTime,0.02); }
+    else if(path==='lfo.toCutoff'){ if(this.lfo) this.lfoToCutoff.gain.setTargetAtTime(val,this.ctx.currentTime,0.02); }
+    else if(path==='lfo.toAmp'){ if(this.lfo) this.lfoToAmp.gain.setTargetAtTime(val,this.ctx.currentTime,0.02); }
+    else if(path==='bend'){ for(const o of this._srcs){ if(o.detune){ o.detune.setTargetAtTime((o._baseDetune||0)+val,this.ctx.currentTime,0.01);} } }
+    /* osc 波形/电平等影响下次触发，存入 P 即可 */
+  }
+  dispose(){
+    if(this.state==='dead') return; this.state='dead';
+    if(this._disposal) clearTimeout(this._disposal);
+    const t=this.ctx.currentTime;
+    for(const s of this._srcs){ try{ if(s.stop) s.stop(t);}catch(e){} try{s.disconnect();}catch(e){} }
+    for(const n of this._all){ try{n.disconnect();}catch(e){} }
+    this._srcs.length=0; this._all.length=0;
+  }
+}
+/* ---------- VoiceManager：多音 + 偷声 ---------- */
+class VoiceManager{
+  constructor(eng){ this.eng=eng; this.max=16; this.voices=new Map(); this.bend=0; this.glide=0; }
+  noteOn(note,vel,t){
+    this.eng.ensureRunning();
+    t=t||this.eng.ctx.currentTime;
+    const P=State.snap();
+    /* 同音符重触发：旧声部快释 */
+    if(this.voices.has(note)){ this.voices.get(note).fastRelease(t); this.voices.delete(note); }
+    if(this.voices.size>=this.max) this.steal(t);
+    const v=new Voice(this.eng,note,vel,P,this.bend);
+    v.noteOn(t);
+    this.voices.set(note,v);
+  }
+  noteOff(note,t){ t=t||this.eng.ctx.currentTime; const v=this.voices.get(note); if(!v) return; v.noteOff(t); this.voices.delete(note); }
+  steal(t){
+    let key=null,oldT=Infinity;
+    for(const [n,v] of this.voices){ if(v.state==='rel'){ key=n; break;} if(v.startT<oldT){oldT=v.startT; key=n;} }
+    if(key!=null){ this.voices.get(key).fastRelease(t); this.voices.delete(key); }
+  }
+  panic(){ for(const v of this.voices.values()) v.fastRelease(this.eng.ctx.currentTime); this.voices.clear(); }
+  setBend(semis){
+    this.bend=semis*100; /* cents */
+    const detune=semis*100;
+    for(const v of this.voices.values()){ for(const o of v._srcs){ if(o.detune){ o.detune.setTargetAtTime(detune,v.ctx.currentTime,0.01);} } }
+  }
+  liveUpdate(path,val){ for(const v of this.voices.values()){ if(v.state!=='dead') v.updateParam(path,val); } }
+}
+
+/* ---------- AudioEngine：全局总线 + 效果链 + 分析/录音分支 ---------- */
+class AudioEngine{
+  constructor(){ this.ctx=null; this.ready=false; this.workletReady=false; }
+  async init(){
+    const AC=window.AudioContext||window.webkitAudioContext;
+    this.ctx=new AC({latencyHint:'interactive'});
+    /* resume 不阻塞：在无真实用户手势时 resume() 的 Promise 可能长期 pending，
+       若 await 会导致整个 init（及后续 UI.build）永不返回。改为 fire-and-forget，
+       真实手势触发后 ctx 自然转为 running。 */
+    if(this.ctx.state!=='running'){ this.ctx.resume().catch(()=>{}); }
+    DSP.noiseBuf=DSP.makeNoise(this.ctx,2);
+    this.workletReady=await DSP.ensureWorklet(this.ctx);
+    this.build();
+    this.ready=true;
+  }
+  ensureRunning(){ if(this.ctx&&this.ctx.state!=='running'){ this.ctx.resume().catch(()=>{}); } }
+  async resume(){ if(this.ctx&&this.ctx.state!=='running') await this.ctx.resume(); }
+  build(){
+    const ctx=this.ctx;
+    /* voice bus */
+    this.voiceBus=ctx.createGain(); this.voiceBus.gain.value=1;
+    /* pre HPF 去直流/极低频 */
+    this.preHPF=ctx.createBiquadFilter(); this.preHPF.type='highpass'; this.preHPF.frequency.value=18;
+    this.voiceBus.connect(this.preHPF);
+
+    /* ---- 失真 ---- */
+    this.dist=ctx.createWaveShaper(); this.dist.oversample='4x'; this.dist.curve=DSP.distCurve(0.0001);
+    this.distWet=ctx.createGain(); this.distDry=ctx.createGain();
+    this.distWet.gain.value=0; this.distDry.gain.value=1;
+    this.preHPF.connect(this.dist); this.dist.connect(this.distWet); this.preHPF.connect(this.distDry);
+
+    /* ---- Bitcrush（worklet 或 passthrough） ---- */
+    if(this.workletReady){
+      this.bc=ctx.createAudioWorkletNode?ctx.createAudioWorkletNode('bitcrusher'):null;
+    }
+    if(this.bc){
+      this.bcDry=ctx.createGain(); this.bcDry.gain.value=1;
+      this.bcWet=ctx.createGain(); this.bcWet.gain.value=0;
+      this._fxIn1=ctx.createGain(); /* 汇聚 dist 后 */
+      this.distWet.connect(this._fxIn1); this.distDry.connect(this._fxIn1);
+      this._fxIn1.connect(this.bc); this.bc.connect(this.bcWet);
+      this._fxIn1.connect(this.bcDry);
+    }
+    /* 合并到一个链头 node 链 */
+    /* 为了统一串联，我们建立一条串联链 head，把 dist/dry 与 bc/wet 都汇入 chainHead */
+    this.chainHead=ctx.createGain();
+    if(this.bc){
+      this.bcWet.connect(this.chainHead); this.bcDry.connect(this.chainHead);
+    } else {
+      this.distWet.connect(this.chainHead); this.distDry.connect(this.chainHead);
+    }
+
+    /* ---- 合唱（短延迟 + LFO） ---- */
+    this.chorus=ctx.createGain(); this.chorusWet=ctx.createGain(); this.chorusDry=ctx.createGain();
+    this.chorusWet.gain.value=0; this.chorusDry.gain.value=1;
+    const cDelay=ctx.createDelay(0.1); cDelay.delayTime.value=0.025;
+    const cLfo=ctx.createOscillator(); cLfo.type='sine'; cLfo.frequency.value=0.6;
+    const cDepth=ctx.createGain(); cDepth.gain.value=0.003;
+    cLfo.connect(cDepth); cDepth.connect(cDelay.delayTime); cLfo.start();
+    this.chainHead.connect(this.chorusDry);
+    this.chainHead.connect(cDelay); cDelay.connect(this.chorusWet);
+    this.chorusDry.connect(this.chorus); this.chorusWet.connect(this.chorus);
+    this._chorusLfo=cLfo; this._chorusDepth=cDepth; this._chorusDelay=cDelay;
+
+    /* ---- 立体声延迟（dry/wet + 反馈环） ---- */
+    this.delayDry=ctx.createGain(); this.delayDry.gain.value=1; this.delayWet=ctx.createGain(); this.delayWet.gain.value=0;
+    this.delay=ctx.createDelay(1.5); this.delay.delayTime.value=0.3;
+    this.delayFb=ctx.createGain(); this.delayFb.gain.value=0.35;
+    this.delay.connect(this.delayFb); this.delayFb.connect(this.delay);
+    this.chorus.connect(this.delayDry); this.chorus.connect(this.delay); this.delay.connect(this.delayWet);
+
+    /* ---- 混响（程序 IR） ---- */
+    this.revDry=ctx.createGain(); this.revDry.gain.value=1; this.revWet=ctx.createGain(); this.revWet.gain.value=0;
+    this.reverb=ctx.createConvolver(); this.reverb.buffer=DSP.makeIR(ctx,{sec:2,decay:2});
+    this.delayDry.connect(this.revDry);
+    const revIn=ctx.createGain(); this.delayWet.connect(revIn); this.revDry.connect(revIn);
+    revIn.connect(this.reverb); this.reverb.connect(this.revWet);
+
+    /* ---- EQ ---- */
+    this.eqLow=ctx.createBiquadFilter(); this.eqLow.type='lowshelf'; this.eqLow.frequency.value=200; this.eqLow.gain.value=0;
+    this.eqMid=ctx.createBiquadFilter(); this.eqMid.type='peaking'; this.eqMid.frequency.value=1000; this.eqMid.Q.value=0.7; this.eqMid.gain.value=0;
+    this.eqHigh=ctx.createBiquadFilter(); this.eqHigh.type='highshelf'; this.eqHigh.frequency.value=4000; this.eqHigh.gain.value=0;
+    const eqIn=ctx.createGain();
+    this.revDry.connect(eqIn); this.revWet.connect(eqIn);
+    eqIn.connect(this.eqLow); this.eqLow.connect(this.eqMid); this.eqMid.connect(this.eqHigh);
+
+    /* ---- 主增益 + 限幅 ---- */
+    this.master=ctx.createGain(); this.master.gain.value=State.get('master.volume');
+    this.limiter=ctx.createDynamicsCompressor();
+    this.limiter.threshold.value=-3; this.limiter.knee.value=0; this.limiter.ratio.value=20;
+    this.limiter.attack.value=0.002; this.limiter.release.value=0.12;
+    this.eqHigh.connect(this.master); this.master.connect(this.limiter); this.limiter.connect(ctx.destination);
+
+    /* ---- 分析 + 录音分支 ---- */
+    this.anScope=ctx.createAnalyser(); this.anScope.fftSize=2048; this.anScope.smoothingTimeConstant=0.3;
+    this.anFFT=ctx.createAnalyser(); this.anFFT.fftSize=4096; this.anFFT.smoothingTimeConstant=0.82;
+    this.recDest=ctx.createMediaStreamDestination();
+    this.limiter.connect(this.anScope); this.limiter.connect(this.anFFT); this.limiter.connect(this.recDest);
+  }
+  /* FX 参数实时更新 */
+  setFX(path,val){
+    const ctx=this.ctx, t=ctx.currentTime;
+    const F=State.params.fx;
+    if(path==='distortion.on'){ F.distortion.on=val; ramp(this.distWet.gain,val?F.distortion.mix:0,t,0.02); ramp(this.distDry.gain,val?1:1,t,0.02); }
+    else if(path==='distortion.amount'){ F.distortion.amount=val; if(F.distortion.on) this.dist.curve=DSP.distCurve(val); }
+    else if(path==='distortion.mix'){ F.distortion.mix=val; if(F.distortion.on) ramp(this.distWet.gain,val,t,0.02); }
+    else if(path==='bitcrush.on'){ F.bitcrush.on=val; if(this.bcWet) ramp(this.bcWet.gain,val?1:0,t,0.02); }
+    else if(path==='bitcrush.bits'){ F.bitcrush.bits=val; if(this.bc) this.bc.parameters.get('bits').value=val; }
+    else if(path==='bitcrush.normfreq'){ F.bitcrush.normfreq=val; if(this.bc) this.bc.parameters.get('normfreq').value=val; }
+    else if(path==='chorus.on'){ F.chorus.on=val; ramp(this.chorusWet.gain,val?F.chorus.mix:0,t,0.02); }
+    else if(path==='chorus.rate'){ F.chorus.rate=val; F.chorus.on; if(F.chorus.on) this._chorusLfo.frequency.setTargetAtTime(val,t,0.02); }
+    else if(path==='chorus.depth'){ F.chorus.depth=val; if(F.chorus.on) this._chorusDepth.gain.setTargetAtTime(val*0.012,t,0.02); }
+    else if(path==='chorus.mix'){ F.chorus.mix=val; if(F.chorus.on) ramp(this.chorusWet.gain,val,t,0.02); }
+    else if(path==='delay.on'){ F.delay.on=val; ramp(this.delayWet.gain,val?F.delay.mix:0,t,0.02); }
+    else if(path==='delay.time'){ F.delay.time=val; if(F.delay.on) this.delay.delayTime.setTargetAtTime(val,t,0.05); }
+    else if(path==='delay.feedback'){ F.delay.feedback=val; this.delayFb.gain.setTargetAtTime(clamp(val,0,0.92),t,0.02); }
+    else if(path==='delay.mix'){ F.delay.mix=val; if(F.delay.on) ramp(this.delayWet.gain,val,t,0.02); }
+    else if(path==='reverb.on'){ F.reverb.on=val; ramp(this.revWet.gain,val?F.reverb.mix:0,t,0.02); }
+    else if(path==='reverb.size'){ F.reverb.size=val; if(F.reverb.on||true) this.reverb.buffer=DSP.makeIR(ctx,{sec:val,decay:F.reverb.decay}); }
+    else if(path==='reverb.decay'){ F.reverb.decay=val; this.reverb.buffer=DSP.makeIR(ctx,{sec:F.reverb.size,decay:val}); }
+    else if(path==='reverb.mix'){ F.reverb.mix=val; if(F.reverb.on) ramp(this.revWet.gain,val,t,0.02); }
+    else if(path==='eq.low'){ F.eq.low=val; this.eqLow.gain.setTargetAtTime(val,t,0.02); }
+    else if(path==='eq.mid'){ F.eq.mid=val; this.eqMid.gain.setTargetAtTime(val,t,0.02); }
+    else if(path==='eq.high'){ F.eq.high=val; this.eqHigh.gain.setTargetAtTime(val,t,0.02); }
+  }
+  setMaster(v){ ramp(this.master.gain,v,this.ctx.currentTime,0.02); }
+}
+
+/* ---------- State：单一参数源 ---------- */
+const State={
+  defaults(){
+    return {
+      master:{volume:0.8},
+      glide:0, bendRange:2,
+      osc0:{on:true,wave:'sawtooth',octave:0,semi:0,detune:0,level:0.55,unison:1,spread:18,pw:null},
+      osc1:{on:true,wave:'square',octave:0,semi:0,detune:7,level:0.4,unison:1,spread:18,pw:null},
+      osc2:{on:false,wave:'triangle',octave:-1,semi:0,detune:-5,level:0.5,unison:1,spread:18,pw:null},
+      sub:{on:false,level:0.5},
+      noise:{on:false,level:0.2},
+      filter:{type:'lowpass',cutoff:2200,reso:1,envAmt:0.5},
+      ampEnv:{a:0.01,d:0.18,s:0.7,r:0.4},
+      filterEnv:{a:0.02,d:0.3,s:0.2,r:0.4},
+      lfo:{on:false,wave:'sine',freq:5,toPitch:0,toCutoff:0,toAmp:0},
+      fx:{
+        distortion:{on:false,amount:25,mix:1},
+        bitcrush:{on:false,bits:8,normfreq:0.45},
+        chorus:{on:false,rate:0.6,depth:0.4,mix:0.5},
+        delay:{on:false,time:0.3,feedback:0.35,mix:0.3},
+        reverb:{on:false,size:2.0,decay:2.0,mix:0.3},
+        eq:{low:0,mid:0,high:0}
+      }
+    };
+  },
+  params:null,
+  init(){ this.params=this.defaults(); },
+  get(path){ return path.split('.').reduce((o,k)=>o[k],this.params); },
+  set(path,val){ const ks=path.split('.'); let o=this.params; for(let i=0;i<ks.length-1;i++)o=o[ks[i]]; o[ks[ks.length-1]]=val; },
+  setOsc(i,o){ Object.assign(this.params['osc'+i],o); },
+  snap(){ try{ return JSON.parse(JSON.stringify(this.params)); }catch(e){ return this.defaults(); } }
+};
+
+/* ---------- Knob：自定义旋钮（SVG 指针 + arc） ---------- */
+class Knob{
+  constructor(opts){
+    Object.assign(this,opts);
+    this.def=this.def!=null?this.def:(this.min+(this.max-this.min)/2);
+    this.value=this.def; this.curve=this.curve||'lin'; this.unit=this.unit||'';
+    this.fmt=this.fmt||null; this.dragging=false;
+    this.el=this.build(); this.bind(); this.redraw();
+  }
+  norm(){ const v=this.value;
+    if(this.curve==='log'){ return (Math.log(v)-Math.log(this.min))/(Math.log(this.max)-Math.log(this.min)); }
+    return (v-this.min)/(this.max-this.min);
+  }
+  fromNorm(n){ n=clamp(n,0,1);
+    if(this.curve==='log'){ return Math.exp(Math.log(this.min)+n*(Math.log(this.max)-Math.log(this.min))); }
+    return this.min+n*(this.max-this.min);
+  }
+  mount(sel){ const host=typeof sel==='string'?document.querySelector(sel):sel; host.appendChild(this.el); return this; }
+  build(){
+    const wrap=el('div','knob'+(this.tone==='off'?' off':' on'));
+    wrap.innerHTML=`
+      <div class="dial">
+        <svg viewBox="0 0 42 42" width="42" height="42">
+          <defs>
+            <radialGradient id="kg${Knob._id}" cx="38%" cy="32%" r="70%">
+              <stop offset="0%" stop-color="#3a4250"/>
+              <stop offset="60%" stop-color="#20242b"/>
+              <stop offset="100%" stop-color="#0c0e12"/>
+            </radialGradient>
+          </defs>
+          <path class="track" d="" fill="none" stroke="#0a0d10" stroke-width="3" stroke-linecap="round"/>
+          <path class="arc"  d="" fill="none" stroke="${this.color||'#3dd2c0'}" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="21" cy="21" r="14" fill="url(#kg${Knob._id})" stroke="#000" stroke-width="0.5"/>
+          <circle cx="21" cy="21" r="14" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+          <line class="ptr" x1="21" y1="21" x2="21" y2="9" stroke="${this.color||'#3dd2c0'}" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="val">--</div>
+      <div class="lab">${this.label||''}</div>`;
+    Knob._id=(Knob._id||0)+1;
+    this._svg=wrap.querySelector('svg');
+    this._track=wrap.querySelector('.track');
+    this._arc=wrap.querySelector('.arc');
+    this._ptr=wrap.querySelector('.ptr');
+    this._val=wrap.querySelector('.val');
+    this._wrap=wrap;
+    return wrap;
+  }
+  /* arc 从 225°(左下) 到 -45°(右下)，扫过 270° */
+  _polar(cx,cy,r,deg){ const a=deg*Math.PI/180; return [cx+r*Math.cos(a), cy+r*Math.sin(a)]; }
+  _arcPath(r,startDeg,endDeg){
+    const cx=21,cy=21; const [sx,sy]=this._polar(cx,cy,r,startDeg), [ex,ey]=this._polar(cx,cy,r,endDeg);
+    const large=(endDeg-startDeg)>180?1:0;
+    return `M ${sx} ${sy} A ${r} ${r} 0 ${large} 1 ${ex} ${ey}`;
+  }
+  redraw(){
+    const START=135, SPAN=270; const n=this.norm();
+    const a0=START, a1=START+SPAN;
+    this._track.setAttribute('d',this._arcPath(17,a0,a1));
+    const cur=a0+SPAN*n;
+    this._arc.setAttribute('d',this._arcPath(17,a0,cur));
+    const [px,py]=this._polar(21,21,11,cur);
+    this._ptr.setAttribute('x2',px); this._ptr.setAttribute('y2',py);
+    let disp=this.fmt?this.fmt(this.value):Math.round(this.value*100)/100;
+    this._val.textContent=disp+(this.unit&&!this.fmt?this.unit:'');
+  }
+  bind(){
+    const dial=this._wrap.querySelector('.dial');
+    let sy=0, sv=0, fine=false;
+    const move=(e)=>{
+      if(!this.dragging) return;
+      const dy=sy-e.clientY; const sens=fine?800:280;
+      let n=this.norm()+dy/sens; n=clamp(n,0,1);
+      this.value=this.fromNorm(n); this.redraw();
+      this.onChange&&this.onChange(this.value);
+    };
+    const up=()=>{ this.dragging=false; document.body.style.cursor=''; window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); };
+    dial.addEventListener('pointerdown',(e)=>{
+      this.dragging=true; sy=e.clientY; sv=this.value; fine=e.shiftKey;
+      document.body.style.cursor='ns-resize';
+      window.addEventListener('pointermove',move); window.addEventListener('pointerup',up);
+      e.preventDefault();
+    });
+    dial.addEventListener('dblclick',()=>{ this.setValue(this.def,true); });
+    dial.addEventListener('wheel',(e)=>{
+      e.preventDefault();
+      const sens=e.shiftKey?0.004:0.02;
+      let n=clamp(this.norm()+(e.deltaY<0?sens:-sens),0,1);
+      this.value=this.fromNorm(n); this.redraw(); this.onChange&&this.onChange(this.value);
+    },{passive:false});
+  }
+  setValue(v,fire){ this.value=clamp(v,this.min,this.max); this.redraw(); if(fire&&this.onChange)this.onChange(this.value); }
+  setOn(b){ this._wrap.classList.toggle('on',b); this._wrap.classList.toggle('off',!b); }
+}
+Knob._id=0;
+
+/* ---------- XYPad ---------- */
+class XYPad{
+  constructor(el,xKnob,yKnob){
+    this.el=el; this.x=xKnob; this.y=yKnob; this.dot=el.querySelector('.dot');
+    const move=(e)=>{
+      const r=el.getBoundingClientRect();
+      const nx=clamp((e.clientX-r.left)/r.width,0,1);
+      const ny=clamp((e.clientY-r.top)/r.height,0,1);
+      this.x.setValue(this.x.fromNorm(nx),true);
+      this.y.setValue(this.y.fromNorm(1-ny),true);
+      this.place();
+    };
+    el.addEventListener('pointerdown',(e)=>{ el.setPointerCapture(e.pointerId); move(e);
+      const mm=(ev)=>move(ev); const up=(ev)=>{ el.releasePointerCapture(e.pointerId); window.removeEventListener('pointermove',mm); window.removeEventListener('pointerup',up); };
+      window.addEventListener('pointermove',mm); window.addEventListener('pointerup',up);
+    });
+    // live sync from knobs
+    const ox=xKnob.onChange, oy=yKnob.onChange;
+    xKnob.onChange=(v)=>{ ox&&ox(v); this.place(); };
+    yKnob.onChange=(v)=>{ oy&&oy(v); this.place(); };
+    this.place();
+  }
+  place(){
+    const r=this.el.getBoundingClientRect();
+    this.dot.style.left=(this.x.norm()*100)+'%';
+    this.dot.style.top=((1-this.y.norm())*100)+'%';
+  }
+}
+
+/* ---------- VirtualKeyboard ---------- */
+const QWERTY=['z','s','x','d','c','v','g','b','h','n','j','m',',','l','.',';','/','q','2','w','3','e','r','5','t','6','y','7','u','i','9','o','0','p',"'",']'];
+class VirtualKeyboard{
+  constructor(host,vm){
+    this.host=host; this.inner=host.querySelector('#kbInner'); this.vm=vm;
+    this.octBase=5; /* MIDI 60=C4 → 这里 octBase=5 对应起始 C? 用 MIDI 编号 */
+    this.startMidi=60; /* C4 */
+    this.keys=[]; this.activeQ=new Set();
+    this.build(29); /* 显示键数 */
+    this.bindMouse(); this.bindQwerty();
+  }
+  midiAt(i){ return this.startMidi+i; }
+  build(count){
+    this.inner.innerHTML=''; this.keys=[];
+    const WKW=26; const whiteIdx=[];
+    for(let i=0;i<count;i++){ const m=this.midiAt(i); if(!this._isBlack(m)) whiteIdx.push(i); }
+    const totalW=whiteIdx.length*WKW; this.inner.style.width=totalW+'px';
+    let wx=0;
+    for(let i=0;i<count;i++){
+      const m=this.midiAt(i); const black=this._isBlack(m);
+      const key=el('div','key '+(black?'black':'white'));
+      if(!black){ key.style.left=wx+'px'; key.style.width=WKW+'px'; wx+=WKW; }
+      else { /* 黑键位置：前一个白键右侧偏移 */
+        key.style.left=(wx-9)+'px'; key.style.width='18px';
+      }
+      const q=QWERTY[i];
+      if(q){ const lab=el('div','kl',q.toUpperCase()); key.appendChild(lab); }
+      key.dataset.midi=m; key.dataset.q=q||'';
+      this.inner.appendChild(key); this.keys.push(key);
+    }
+  }
+  _isBlack(m){ const p=((m%12)+12)%12; return [1,3,6,8,10].includes(p); }
+  bindMouse(){
+    const press=(m)=>{ this.vm.noteOn(m,0.9); this._visual(m,true); };
+    const rel=(m)=>{ this.vm.noteOff(m); this._visual(m,false); };
+    this.inner.addEventListener('pointerdown',(e)=>{
+      const k=e.target.closest('.key'); if(!k)return; const m=+k.dataset.midi;
+      this._mouseMidi=m; press(m); k.setPointerCapture&&k.setPointerCapture(e.pointerId);
+    });
+    this.inner.addEventListener('pointerover',(e)=>{ if(e.buttons&1){ const k=e.target.closest('.key'); if(!k)return; const m=+k.dataset.midi; if(this._mouseMidi!==m){ if(this._mouseMidi!=null)rel(this._mouseMidi); press(m); this._mouseMidi=m; } } });
+    this.inner.addEventListener('pointerup',(e)=>{ if(this._mouseMidi!=null){ rel(this._mouseMidi); this._mouseMidi=null; } });
+    this.inner.addEventListener('pointerleave',()=>{ if(this._mouseMidi!=null){ rel(this._mouseMidi); this._mouseMidi=null; } });
+  }
+  bindQwerty(){
+    window.addEventListener('keydown',(e)=>{
+      if(e.repeat) return;
+      const tgt=e.target; if(tgt&&(tgt.tagName==='INPUT'||tgt.tagName==='SELECT'||tgt.tagName==='TEXTAREA')) return;
+      const k=e.key.toLowerCase();
+      const idx=QWERTY.indexOf(k); if(idx<0) return;
+      const m=this.midiAt(idx); if(this.activeQ.has(m))return;
+      this.activeQ.add(m); this.vm.noteOn(m,0.9); this._visual(m,true);
+    });
+    window.addEventListener('keyup',(e)=>{
+      const k=e.key.toLowerCase(); const idx=QWERTY.indexOf(k); if(idx<0)return;
+      const m=this.midiAt(idx); this.activeQ.delete(m); this.vm.noteOff(m); this._visual(m,false);
+    });
+  }
+  _visual(m,on){ const k=this.keys.find(x=>+x.dataset.midi===m); if(k) k.classList.toggle('active',on); }
+  shiftOct(d){ this.startMidi=clamp(this.startMidi+d*12,12,96); this.build(29);
+    const note=((this.startMidi)%12); document.getElementById('octVal').textContent='C'+(Math.floor(this.startMidi/12)-1);
+  }
+}
+
+/* ---------- Sequencer（look-ahead 调度） ---------- */
+class Sequencer{
+  constructor(eng,vm){
+    this.eng=eng; this.vm=vm; this.running=false; this.steps=16; this.bpm=120; this.swing=0;
+    this.cur=0; this.nextTime=0; this.timer=null;
+    /* 多轨：每轨 {note, mute, pattern:[bool×steps]} */
+    this.tracks=[]; this._initTracks();
+  }
+  _initTracks(){
+    const defs=[48,52,55,60,64,67]; /* C3 E3 G3 C4 E4 G4 */
+    this.tracks=defs.map(n=>({note:n,mute:false,pattern:new Array(32).fill(false)}));
+  }
+  setSteps(n){ this.steps=n; this.rebuild&&this.rebuild(); }
+  toggle(track,step){ this.tracks[track].pattern[step]=!this.tracks[track].pattern[step]; }
+  clear(track){ if(track==null){ this.tracks.forEach(t=>t.pattern.fill(false)); } else this.tracks[track].pattern.fill(false); }
+  start(){
+    if(this.running)return; this.running=true; this.cur=0;
+    this.nextTime=this.eng.ctx.currentTime+0.1;
+    this._tick();
+  }
+  stop(){ this.running=false; if(this.timer)clearInterval(this.timer); if(this._onStep)this._onStep(-1); }
+  _stepDur(){ return 60/this.bpm/4; } /* 16分音符 */
+  _tick(){
+    this.timer=setInterval(()=>{
+      const ahead=this.eng.ctx.currentTime+0.12;
+      while(this.nextTime<ahead){
+        const idx=this.cur;
+        const dur=this._stepDur();
+        /* swing：偶数步延后 */
+        const t=this.nextTime + (idx%2===1? this.swing*0.5*dur:0);
+        for(let ti=0;ti<this.tracks.length;ti++){
+          const tr=this.tracks[ti]; if(tr.mute)continue;
+          if(tr.pattern[idx]){
+            this.vm.noteOn(tr.note,0.9,t);
+            this.vm.noteOff(tr.note,t+dur*0.9);
+          }
+        }
+        if(this._onStep)this._onStep(idx);
+        this.cur=(this.cur+1)%this.steps;
+        this.nextTime+=dur;
+      }
+    },25);
+  }
+}
+
+/* ---------- Visualizer：示波器 + 频谱 + VU ---------- */
+class Visualizer{
+  constructor(eng){
+    this.eng=eng;
+    this.scope=document.getElementById('cvScope'); this.fft=document.getElementById('cvFFT');
+    this.vu=document.getElementById('vuBar');
+    this.sctx=this.scope.getContext('2d'); this.fctx=this.fft.getContext('2d');
+    this._resize();
+    window.addEventListener('resize',()=>this._resize());
+  }
+  _resize(){
+    [this.scope,this.fft].forEach(c=>{ c.width=c.clientWidth*devicePixelRatio; c.height=c.clientHeight*devicePixelRatio; });
+  }
+  start(){ const loop=()=>{ this.draw(); this._raf=requestAnimationFrame(loop); }; loop(); }
+  draw(){
+    if(this.scope.width!==Math.round(this.scope.clientWidth*devicePixelRatio)||this.fft.width!==Math.round(this.fft.clientWidth*devicePixelRatio)){ this._resize(); }
+    const an=this.eng.anScope, af=this.eng.anFFT;
+    /* scope */
+    const w=this.scope.width,h=this.scope.height,s=this.sctx;
+    const td=new Uint8Array(an.fftSize); an.getByteTimeDomainData(td);
+    s.fillStyle='#070a0d'; s.fillRect(0,0,w,h);
+    s.strokeStyle='#3dd2c0'; s.lineWidth=1.5*devicePixelRatio; s.beginPath();
+    for(let i=0;i<td.length;i++){ const x=i/(td.length-1)*w, y=(td[i]/255)*h; i?s.lineTo(x,y):s.moveTo(x,y); }
+    s.stroke();
+    /* fft bars */
+    const fw=this.fft.width,fh=this.fft.height,f=this.fctx;
+    const fd=new Uint8Array(af.frequencyBinCount); af.getByteFrequencyData(fd);
+    f.fillStyle='#070a0d'; f.fillRect(0,0,fw,fh);
+    const bars=64; const step=Math.floor(fd.length/bars*0.6); /* 只取低 60% 频段 */
+    const bw=fw/bars;
+    let sum=0;
+    for(let i=0;i<bars;i++){
+      let v=0; for(let j=0;j<step;j++){ v=Math.max(v,fd[i*step+j]); } v=v/255;
+      sum+=v;
+      const bh=v*fh; const x=i*bw;
+      const g=f.createLinearGradient(0,fh-bh,0,fh);
+      g.addColorStop(0,'#ff7a45'); g.addColorStop(0.5,'#3dd2c0'); g.addColorStop(1,'#1f8f82');
+      f.fillStyle=g; f.fillRect(x+1,fh-bh,bw-2,bh);
+    }
+    /* VU from time-domain RMS */
+    let rms=0; for(let i=0;i<td.length;i++){ const v=(td[i]-128)/128; rms+=v*v; } rms=Math.sqrt(rms/td.length);
+    this.vu.style.width=clamp(rms*180,0,100)+'%';
+    const cpu=document.getElementById('cpuLoad');
+    if(cpu) cpu.textContent=(this.eng.ctx?this.eng.ctx.baseLatency?Math.round(this.eng.ctx.baseLatency*1000)+'ms':'':'');
+  }
+}
+
+/* ---------- Recorder ---------- */
+class Recorder{
+  constructor(eng){ this.eng=eng; this.mr=null; this.chunks=[]; this.active=false; }
+  start(){
+    const types=['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4'];
+    let type=null; for(const t of types){ if(MediaRecorder.isTypeSupported(t)){ type=t; break; } }
+    try{
+      this.mr=new MediaRecorder(this.eng.recDest.stream, type?{mimeType:type}:undefined);
+    }catch(e){ toast('录音不可用：'+e.message); return false; }
+    this.chunks=[]; this.mr.ondataavailable=e=>{ if(e.data.size>0)this.chunks.push(e.data); };
+    this.mr.start(); this.active=true; return true;
+  }
+  stop(){
+    return new Promise((res)=>{
+      if(!this.mr)return res(null);
+      this.mr.onstop=()=>{ const blob=new Blob(this.chunks,{type:this.mr.mimeType||'audio/webm'}); this.active=false; res(blob); };
+      try{ this.mr.stop(); }catch(e){ res(null); }
+    });
+  }
+}
+
+/* ---------- MIDI ---------- */
+const MIDI={
+  async init(vm){
+    if(!navigator.requestMIDIAccess){ return false; }
+    try{
+      const acc=await navigator.requestMIDIAccess();
+      const hook=(inp)=>{ inp.onmidimessage=(e)=>MIDI.onMsg(e,vm); };
+      acc.inputs.forEach(hook);
+      acc.onstatechange=()=>acc.inputs.forEach(hook);
+      return acc.inputs.size>0;
+    }catch(e){ return false; }
+  },
+  onMsg(e,vm){
+    const d=e.data, st=d[0]&0xf0;
+    if(st===0x90&&d[2]>0){ vm.noteOn(d[1],d[2]/127); }
+    else if(st===0x80||(st===0x90&&d[2]===0)){ vm.noteOff(d[1]); }
+    else if(st===0xe0){ const bend=(((d[2]<<7)|d[1])-8192)/8192; vm.setBend(bend*State.get('bendRange')); }
+    else if(st===0xb0){ if(d[1]===1){ /* mod → LFO toCutoff 暂忽略或路由 */ } }
+  }
+};
+
+/* ---------- Presets ---------- */
+const Presets={
+  factory:{
+    'INIT':null, /* 占位，init 时填 */
+    'WARM PAD':{master:{volume:0.8},glide:0,bendRange:2,
+      osc0:{on:true,wave:'sawtooth',octave:0,semi:0,detune:-6,level:0.4,unison:3,spread:14,pw:null},
+      osc1:{on:true,wave:'sawtooth',octave:0,semi:0,detune:6,level:0.4,unison:3,spread:14,pw:null},
+      osc2:{on:false,wave:'triangle',octave:-1,semi:0,detune:0,level:0.4,unison:1,spread:18,pw:null},
+      sub:{on:true,level:0.4},noise:{on:false,level:0.1},
+      filter:{type:'lowpass',cutoff:1200,reso:2,envAmt:0.3},
+      ampEnv:{a:0.6,d:0.8,s:0.8,r:1.2},filterEnv:{a:0.8,d:1.5,s:0.4,r:1.0},
+      lfo:{on:true,wave:'sine',freq:0.3,toPitch:0,toCutoff:400,toAmp:0},
+      fx:{distortion:{on:false,amount:25,mix:1},bitcrush:{on:false,bits:8,normfreq:0.45},
+          chorus:{on:true,rate:0.4,depth:0.6,mix:0.5},delay:{on:false,time:0.3,feedback:0.3,mix:0.3},
+          reverb:{on:true,size:2.6,decay:2.4,mix:0.45},eq:{low:0,mid:0,high:0}}},
+    'ACID LEAD':{master:{volume:0.8},glide:0.08,bendRange:2,
+      osc0:{on:true,wave:'sawtooth',octave:0,semi:0,detune:0,level:0.6,unison:1,spread:18,pw:null},
+      osc1:{on:false,wave:'square',octave:0,semi:0,detune:7,level:0.3,unison:1,spread:18,pw:null},
+      osc2:{on:false,wave:'triangle',octave:-1,semi:0,detune:-5,level:0.5,unison:1,spread:18,pw:null},
+      sub:{on:false,level:0.5},noise:{on:false,level:0.2},
+      filter:{type:'lowpass',cutoff:800,reso:12,envAmt:1.2},
+      ampEnv:{a:0.005,d:0.12,s:0.2,r:0.15},filterEnv:{a:0.005,d:0.18,s:0.0,r:0.12},
+      lfo:{on:false,wave:'sine',freq:5,toPitch:0,toCutoff:0,toAmp:0},
+      fx:{distortion:{on:true,amount:35,mix:0.7},bitcrush:{on:false,bits:8,normfreq:0.45},
+          chorus:{on:false,rate:0.6,depth:0.4,mix:0.5},delay:{on:true,time:0.375,feedback:0.4,mix:0.3},
+          reverb:{on:false,size:2,decay:2,mix:0.3},eq:{low:2,mid:0,high:0}}},
+    'SUB BASS':{master:{volume:0.85},glide:0.05,bendRange:2,
+      osc0:{on:true,wave:'sine',octave:-1,semi:0,detune:0,level:0.7,unison:1,spread:18,pw:null},
+      osc1:{on:true,wave:'square',octave:-1,semi:0,detune:0,level:0.2,unison:1,spread:18,pw:null},
+      osc2:{on:false,wave:'triangle',octave:-1,semi:0,detune:-5,level:0.5,unison:1,spread:18,pw:null},
+      sub:{on:true,level:0.6},noise:{on:false,level:0.2},
+      filter:{type:'lowpass',cutoff:500,reso:4,envAmt:0.4},
+      ampEnv:{a:0.01,d:0.2,s:0.9,r:0.2},filterEnv:{a:0.01,d:0.2,s:0.3,r:0.2},
+      lfo:{on:false,wave:'sine',freq:5,toPitch:0,toCutoff:0,toAmp:0},
+      fx:{distortion:{on:false,amount:25,mix:1},bitcrush:{on:false,bits:8,normfreq:0.45},
+          chorus:{on:false,rate:0.6,depth:0.4,mix:0.5},delay:{on:false,time:0.3,feedback:0.35,mix:0.3},
+          reverb:{on:false,size:2,decay:2,mix:0.2},eq:{low:3,mid:-2,high:0}}},
+    'PLUCK':{master:{volume:0.8},glide:0,bendRange:2,
+      osc0:{on:true,wave:'triangle',octave:0,semi:0,detune:0,level:0.6,unison:2,spread:10,pw:null},
+      osc1:{on:true,wave:'sawtooth',octave:0,semi:0,detune:12,level:0.3,unison:1,spread:18,pw:null},
+      osc2:{on:false,wave:'triangle',octave:-1,semi:0,detune:-5,level:0.5,unison:1,spread:18,pw:null},
+      sub:{on:false,level:0.5},noise:{on:false,level:0.2},
+      filter:{type:'lowpass',cutoff:3000,reso:3,envAmt:0.6},
+      ampEnv:{a:0.001,d:0.25,s:0.0,r:0.3},filterEnv:{a:0.001,d:0.2,s:0.0,r:0.2},
+      lfo:{on:false,wave:'sine',freq:5,toPitch:0,toCutoff:0,toAmp:0},
+      fx:{distortion:{on:false,amount:25,mix:1},bitcrush:{on:false,bits:8,normfreq:0.45},
+          chorus:{on:false,rate:0.6,depth:0.4,mix:0.4},delay:{on:true,time:0.3,feedback:0.45,mix:0.35},
+          reverb:{on:true,size:2.2,decay:2,mix:0.35},eq:{low:0,mid:1,high:1}}}
+  },
+  list(){ return Object.keys(this.factory); },
+  apply(name){
+    if(name==='INIT'){ App.applyPreset(State.defaults()); return; }
+    const p=this.factory[name]; if(!p) return; App.applyPreset(JSON.parse(JSON.stringify(p)));
+  }
+};
+
+/* ============================================================
+   UI 构建：把旋钮/控件挂到 DOM，并 wire 到 State/Engine/VM
+   ============================================================ */
+const UI={ knobs:{}, envCanvases:{} };
+
+/* 通用的「旋钮 → State+引擎」绑定器 */
+function bindKnob(knob, path, opts){
+  knob.onChange=(v)=>{
+    State.set(path,v);
+    if(opts.fx){ App.eng&&App.eng.setFX(path,v); }
+    else if(path.startsWith('master')){ App.eng&&App.eng.setMaster(v); }
+    else if(opts.live){ App.vm&&App.vm.liveUpdate(path,v); }
+    if(opts.after) opts.after(v);
+  };
+  return knob;
+}
+
+const WAVE_OPTS=[['sine','SIN'],['square','SQR'],['sawtooth','SAW'],['triangle','TRI']];
+
+UI.build=function(){
+  /* ---- OSC × 3 ---- */
+  const oscStack=document.getElementById('oscStack');
+  for(let i=0;i<3;i++){
+    const unit=el('div','osc-unit');
+    const tag=el('div','tag','OSC'+(i+1));
+    const tgl=el('div','toggle'+(State.get('osc'+i+'.on')?' on':'')); tgl.title='开关';
+    tgl.addEventListener('click',()=>{ const on=!tgl.classList.contains('on'); tgl.classList.toggle('on',on); State.set('osc'+i+'.on',on); });
+    unit.appendChild(tag); unit.appendChild(tgl);
+    const kd=el('div','osc-knobs');
+    /* wave select */
+    const sel=el('select','sel'); WAVE_OPTS.forEach(([v,l])=>{ const o=el('option'); o.value=v;o.textContent=l; if(State.get('osc'+i+'.wave')===v)o.selected=true; sel.appendChild(o); });
+    sel.style.width='52px';
+    sel.addEventListener('change',()=>State.set('osc'+i+'.wave',sel.value));
+    kd.appendChild(sel);
+    /* octave */
+    const oSel=el('select','sel'); for(let o=-2;o<=2;o++){ const op=el('option'); op.value=o; op.textContent=(o>=0?'+':'')+o+' oct'; if(State.get('osc'+i+'.octave')===o)op.selected=true; oSel.appendChild(op);} oSel.style.width='58px';
+    oSel.addEventListener('change',()=>State.set('osc'+i+'.octave',+oSel.value));
+    kd.appendChild(oSel);
+    const knobs=[
+      new Knob({label:'SEMI',min:-12,max:12,def:State.get('osc'+i+'.semi'),color:'#3dd2c0',fmt:v=>(v>=0?'+':'')+Math.round(v)}),
+      new Knob({label:'DETUNE',min:-50,max:50,def:State.get('osc'+i+'.detune'),color:'#3dd2c0',unit:'',fmt:v=>Math.round(v)}),
+      new Knob({label:'LEVEL',min:0,max:1,def:State.get('osc'+i+'.level'),color:'#3dd2c0',fmt:v=>Math.round(v*100)}),
+      new Knob({label:'UNISON',min:1,max:7,def:State.get('osc'+i+'.unison'),color:'#ff7a45',curve:'int',fmt:v=>Math.round(v)}),
+      new Knob({label:'SPREAD',min:0,max:50,def:State.get('osc'+i+'.spread'),color:'#ff7a45',fmt:v=>Math.round(v)})
+    ];
+    knobs[0].onChange=v=>State.set('osc'+i+'.semi',v);
+    knobs[1].onChange=v=>State.set('osc'+i+'.detune',v);
+    knobs[2].onChange=v=>State.set('osc'+i+'.level',v);
+    knobs[3].onChange=v=>State.set('osc'+i+'.unison',Math.round(v));
+    knobs[4].onChange=v=>State.set('osc'+i+'.spread',v);
+    /* unison int */
+    knobs.forEach(k=>{ k._wrap.style.width='42px'; kd.appendChild(k._wrap); });
+    unit.appendChild(kd); oscStack.appendChild(unit);
+    UI.knobs['osc'+i]=knobs;
+  }
+
+  /* ---- SUB / NOISE / GLIDE / BEND ---- */
+  setupToggle('tSub','sub.on');
+  setupToggle('tNoise','noise.on');
+  const kSub=new Knob({label:'LEVEL',min:0,max:1,def:State.get('sub.level'),color:'#3dd2c0',fmt:v=>Math.round(v*100)});
+  kSub.onChange=v=>State.set('sub.level',v); document.getElementById('knobSub').appendChild(kSub._wrap);
+  const kNoise=new Knob({label:'LEVEL',min:0,max:1,def:State.get('noise.level'),color:'#3dd2c0',fmt:v=>Math.round(v*100)});
+  kNoise.onChange=v=>State.set('noise.level',v); document.getElementById('knobNoise').appendChild(kNoise._wrap);
+  const kGlide=new Knob({label:'TIME',min:0,max:0.5,def:State.get('glide'),color:'#ff7a45',fmt:v=>(v*1000).toFixed(0)+'ms'});
+  kGlide.onChange=v=>State.set('glide',v); document.getElementById('knobGlide').appendChild(kGlide._wrap);
+  const kBend=new Knob({label:'SEMI',min:1,max:24,def:State.get('bendRange'),color:'#ff7a45',fmt:v=>Math.round(v)});
+  kBend.onChange=v=>State.set('bendRange',v); document.getElementById('knobBend').appendChild(kBend._wrap);
+
+  /* ---- FILTER ---- */
+  const kFC=new Knob({label:'CUTOFF',min:30,max:18000,def:State.get('filter.cutoff'),color:'#3dd2c0',curve:'log',fmt:v=>v>=1000?(v/1000).toFixed(1)+'k':Math.round(v)});
+  const kFR=new Knob({label:'RESO',min:0.1,max:24,def:State.get('filter.reso'),color:'#3dd2c0',fmt:v=>v.toFixed(1)});
+  const kFE=new Knob({label:'ENV',min:-2,max:2,def:State.get('filter.envAmt'),color:'#ff7a45',fmt:v=>v.toFixed(2)});
+  bindKnob(kFC,'filter.cutoff',{live:true}); bindKnob(kFR,'filter.reso',{live:true}); bindKnob(kFE,'filter.envAmt',{live:true});
+  document.getElementById('kFilterCutoff').appendChild(kFC._wrap);
+  document.getElementById('kFilterReso').appendChild(kFR._wrap);
+  document.getElementById('kFilterEnvAmt').appendChild(kFE._wrap);
+  document.getElementById('filterType').value=State.get('filter.type');
+  document.getElementById('filterType').addEventListener('change',(e)=>{ State.set('filter.type',e.target.value); App.vm&&App.vm.liveUpdate('filter.type',e.target.value); });
+  UI.knobs.filter={cutoff:kFC,reso:kFR,envAmt:kFE};
+
+  /* ---- ENVELOPES ---- */
+  buildEnvKnobs('ampEnv','cvAmpEnv',['a','d','s','r'],['A','D','S','R']);
+  buildEnvKnobs('filterEnv','cvFilterEnv',['a','d','s','r'],['A','D','S','R']);
+
+  /* ---- LFO ---- */
+  setupToggle('tLfo','lfo.on');
+  document.getElementById('lfoWave').value=State.get('lfo.wave');
+  document.getElementById('lfoWave').addEventListener('change',e=>{ State.set('lfo.wave',e.target.value); App.vm&&App.vm.liveUpdate('lfo.wave',e.target.value); });
+  const kLF=new Knob({label:'FREQ',min:0.05,max:30,def:State.get('lfo.freq'),color:'#3dd2c0',curve:'log',fmt:v=>v.toFixed(2)});
+  bindKnob(kLF,'lfo.freq',{live:true}); document.getElementById('kLfoFreq').appendChild(kLF._wrap);
+  const kLP=new Knob({label:'AMT',min:0,max:100,def:State.get('lfo.toPitch'),color:'#ff7a45',fmt:v=>Math.round(v)});
+  const kLC=new Knob({label:'AMT',min:0,max:6000,def:State.get('lfo.toCutoff'),color:'#ff7a45',fmt:v=>v>=1000?(v/1000).toFixed(1)+'k':Math.round(v)});
+  const kLA=new Knob({label:'AMT',min:0,max:1,def:State.get('lfo.toAmp'),color:'#ff7a45',fmt:v=>Math.round(v*100)});
+  bindKnob(kLP,'lfo.toPitch',{live:true}); bindKnob(kLC,'lfo.toCutoff',{live:true}); bindKnob(kLA,'lfo.toAmp',{live:true});
+  document.getElementById('kLfoPitch').appendChild(kLP._wrap);
+  document.getElementById('kLfoCutoff').appendChild(kLC._wrap);
+  document.getElementById('kLfoAmp').appendChild(kLA._wrap);
+  UI.knobs.lfo={freq:kLF,toPitch:kLP,toCutoff:kLC,toAmp:kLA};
+
+  /* ---- FX ---- */
+  buildFX();
+
+  /* ---- MASTER ---- */
+  const kM=new Knob({label:'VOL',min:0,max:1,def:State.get('master.volume'),color:'#3dd2c0',fmt:v=>Math.round(v*100)});
+  bindKnob(kM,'master.volume',{});
+  document.getElementById('knobMaster').appendChild(kM._wrap);
+  UI.knobs.master=kM;
+
+  /* ---- SEQUENCER ---- */
+  const kBpm=new Knob({label:'BPM',min:40,max:220,def:120,color:'#3dd2c0',fmt:v=>Math.round(v)});
+  kBpm.onChange=v=>{ App.seq.bpm=Math.round(v); };
+  document.getElementById('knobSeqBpm').appendChild(kBpm._wrap);
+  const kSwing=new Knob({label:'SWING',min:0,max:0.7,def:0,color:'#ff7a45',fmt:v=>Math.round(v*100)});
+  kSwing.onChange=v=>{ App.seq.swing=v; };
+  document.getElementById('knobSeqSwing').appendChild(kSwing._wrap);
+  UI.knobs.bpm=kBpm; UI.knobs.swing=kSwing;
+  setupToggle('tSeq',null,(on)=>{ on?App.seq.start():App.seq.stop(); });
+  document.getElementById('seqSteps').addEventListener('change',(e)=>{ App.seq.setSteps(+e.target.value); buildSeqGrid(); });
+  document.getElementById('seqClear').addEventListener('click',()=>{ App.seq.clear(UI.curTrack); buildSeqGrid(); });
+  const trackSel=document.getElementById('seqTrack');
+  for(let i=0;i<6;i++){ const o=el('option'); o.value=i; o.textContent='T'+(i+1)+' '+(App.seq.tracks[i]?mtof(App.seq.tracks[i].note).toFixed(0)+'Hz':''); trackSel.appendChild(o); }
+  trackSel.addEventListener('change',(e)=>{ UI.curTrack=+e.target.value; buildSeqGrid(); });
+  UI.curTrack=0;
+
+  /* ---- preset selector ---- */
+  const psel=document.getElementById('presetSel');
+  Presets.list().forEach(n=>{ const o=el('option'); o.textContent=n; o.value=n; psel.appendChild(o); });
+  psel.addEventListener('change',()=>Presets.apply(psel.value));
+  document.getElementById('savePreset').addEventListener('click',()=>{
+    const name=prompt('预设名称：','MY PRESET'); if(!name)return;
+    try{ const all=JSON.parse(localStorage.getItem('nexus_presets')||'{}'); all[name]=State.snap(); localStorage.setItem('nexus_presets',JSON.stringify(all)); refreshUserPresets(); toast('已保存：'+name); }catch(e){ toast('保存失败'); }
+  });
+  document.getElementById('exportPreset').addEventListener('click',()=>{
+    const blob=new Blob([JSON.stringify(State.snap(),null,2)],{type:'application/json'});
+    const a=el('a'); a.href=URL.createObjectURL(blob); a.download='nexus-preset.json'; a.click();
+  });
+  document.getElementById('importPreset').addEventListener('click',()=>{
+    const inp=el('input'); inp.type='file'; inp.accept='.json,application/json';
+    inp.onchange=()=>{ const f=inp.files[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{ try{ App.applyPreset(JSON.parse(r.result)); toast('已导入预设'); }catch(e){ toast('导入失败：格式错误'); } }; r.readAsText(f); };
+    inp.click();
+  });
+  refreshUserPresets();
+
+  /* ---- topbar buttons ---- */
+  document.getElementById('panicBtn').addEventListener('click',()=>{ App.vm.panic(); toast('PANIC — 全部止音'); });
+  const recBtn=document.getElementById('recBtn');
+  recBtn.addEventListener('click',async()=>{
+    if(!App.rec){ toast('引擎未就绪'); return; }
+    if(!App.rec.active){ if(App.rec.start()){ recBtn.classList.add('active'); recBtn.textContent='■ 停止'; toast('开始录音'); } }
+    else { const blob=await App.rec.stop(); recBtn.classList.remove('active'); recBtn.textContent='● 录音';
+      if(blob){ const a=el('a'); a.href=URL.createObjectURL(blob); a.download='nexus-recording.'+(blob.type.includes('webm')?'webm':'mp4'); a.click(); toast('录音已导出'); } }
+  });
+};
+
+function refreshUserPresets(){
+  const psel=document.getElementById('presetSel'); const cur=psel.value;
+  /* 清掉用户预设（保留 factory） */
+  [...psel.options].forEach(o=>{ if(o.dataset.user) o.remove(); });
+  let all={}; try{ all=JSON.parse(localStorage.getItem('nexus_presets')||'{}'); }catch(e){}
+  Object.keys(all).forEach(name=>{ const o=el('option'); o.textContent='★ '+name; o.value='user::'+name; o.dataset.user='1'; psel.appendChild(o); });
+  psel.value=cur;
+}
+
+function setupToggle(id,path,handler){
+  const t=document.getElementById(id); if(!t)return;
+  const init=path?State.get(path):false;
+  t.classList.toggle('on',!!init);
+  t.addEventListener('click',()=>{
+    const on=!t.classList.contains('on'); t.classList.toggle('on',on);
+    if(path){ State.set(path,on); App.vm&&App.vm.liveUpdate(path,on); App.eng&&path.startsWith('fx')&&App.eng.setFX(path,on); }
+    handler&&handler(on);
+  });
+}
+
+function buildEnvKnobs(envKey,canvasId,keys,labels){
+  const host=document.getElementById(envKey+'Knobs'); const colors=['#3dd2c0','#3dd2c0','#ff7a45','#ff7a45'];
+  const max={a:3,d:3,s:1,r:4}; UI.knobs[envKey]={};
+  keys.forEach((k,i)=>{
+    const knob=new Knob({label:labels[i],min:0.001,max:max[k],def:State.get(envKey+'.'+k),color:colors[i],
+      fmt:v=>v<1?Math.round(v*1000)+'ms':v.toFixed(2)+'s'});
+    knob._wrap.style.width='44px';
+    knob.onChange=(v)=>{ const o={}; o[k]=v; State.set(envKey+'.'+k,v); App.vm&&App.vm.liveUpdate(envKey,o); drawEnvGraph(envKey,canvasId); };
+    host.appendChild(knob._wrap); UI.knobs[envKey][k]=knob;
+  });
+  drawEnvGraph(envKey,canvasId);
+}
+function drawEnvGraph(envKey,canvasId){
+  const cv=document.getElementById(canvasId); const w=cv.width=cv.clientWidth*devicePixelRatio,h=cv.height=cv.clientHeight*devicePixelRatio;
+  const c=cv.getContext('2d'); c.clearRect(0,0,w,h);
+  const e=State.params[envKey]; const A=Math.min(e.a,1),D=Math.min(e.d,1),S=e.s,R=Math.min(e.r,1.5);
+  const total=A+D+0.6+R; const x0=6,y0=h-6,availW=w-12,availH=h-12;
+  const X=t=>x0+(t/total)*availW;
+  c.strokeStyle=envKey==='ampEnv'?'#3dd2c0':'#ff7a45'; c.lineWidth=1.5*devicePixelRatio; c.beginPath();
+  c.moveTo(X(0),y0); c.lineTo(X(A),y0-availH); c.lineTo(X(A+D),y0-availH*S); c.lineTo(X(A+D+0.6),y0-availH*S); c.lineTo(X(total),y0); c.stroke();
+  c.fillStyle='rgba(61,210,192,0.08)'; c.fill();
+}
+
+function buildFX(){
+  const grid=document.getElementById('fxGrid'); grid.innerHTML='';
+  const F=State.params.fx;
+  const units=[
+    {key:'distortion',title:'DISTORT',items:[['amount',0,100,'#3dd2c0'],['mix',0,1,'#3dd2c0']]},
+    {key:'bitcrush',title:'BITCRUSH',items:[['bits',2,16,'#3dd2c0'],['normfreq',0.02,1,'#3dd2c0']],intBits:true},
+    {key:'chorus',title:'CHORUS',items:[['rate',0.05,5,'#3dd2c0'],['depth',0,1,'#3dd2c0'],['mix',0,1,'#3dd2c0']]},
+    {key:'delay',title:'DELAY',items:[['time',0.02,1,'#3dd2c0'],['feedback',0,0.92,'#ff7a45'],['mix',0,1,'#3dd2c0']]},
+    {key:'reverb',title:'REVERB',items:[['size',0.3,5,'#3dd2c0'],['decay',0.3,4,'#3dd2c0'],['mix',0,1,'#3dd2c0']]},
+    {key:'eq',title:'EQ',items:[['low',-18,18,'#3dd2c0'],['mid',-18,18,'#3dd2c0'],['high',-18,18,'#3dd2c0']],noToggle:true}
+  ];
+  UI.knobs.fx={};
+  units.forEach(u=>{
+    const box=el('div','fx-unit');
+    const hdr=el('div','hdr');
+    const title=el('div','ft',u.title);
+    hdr.appendChild(title);
+    if(!u.noToggle){
+      const tg=el('div','toggle'+(F[u.key].on?' on':''));
+      tg.addEventListener('click',()=>{ const on=!tg.classList.contains('on'); tg.classList.toggle('on',on); State.set('fx.'+u.key+'.on',on); App.eng&&App.eng.setFX(u.key+'.on',on); });
+      hdr.appendChild(tg);
+    } else hdr.appendChild(el('div'));
+    box.appendChild(hdr);
+    const fk=el('div','fk');
+    u.items.forEach(([nm,lo,hi,col])=>{
+      const lab=u.key==='eq'?nm.toUpperCase():({amount:'DRIVE',mix:'MIX',bits:'BITS',normfreq:'FREQ',rate:'RATE',depth:'DEPTH',time:'TIME',feedback:'FB',size:'SIZE',decay:'DECAY'}[nm]);
+      const intOnly=(u.intBits&&nm==='bits');
+      const knob=new Knob({label:lab,min:lo,max:hi,def:State.get('fx.'+u.key+'.'+nm),color:col,
+        curve:(nm==='normfreq'||nm==='time'||nm==='size'||nm==='rate'||nm==='decay')?'log':'lin',
+        fmt:intOnly?(v=>Math.round(v)):(nm==='mix'||nm==='depth'||nm==='feedback'?(v=>Math.round(v*100)):(nm==='time'||nm==='size'||nm==='decay'?(v=>v>=1?v.toFixed(2)+'s':(v*1000).toFixed(0)+'ms'):(v=>Math.round(v))))});
+      knob._wrap.style.width='42px';
+      const path='fx.'+u.key+'.'+nm;
+      knob.onChange=(v)=>{ State.set(path,v); App.eng&&App.eng.setFX(path,v); };
+      fk.appendChild(knob._wrap);
+      UI.knobs.fx[u.key+'.'+nm]=knob;
+    });
+    box.appendChild(fk); grid.appendChild(box);
+  });
+  /* 初始 FX 状态同步到引擎 */
+  if(App.eng){ ['distortion','bitcrush','chorus','delay','reverb','eq'].forEach(k=>{
+    const on=State.get('fx.'+k+'.on'); if(on) App.eng.setFX(k+'.on',true);
+  }); }
+}
+
+/* ---- sequencer grid ---- */
+function buildSeqGrid(){
+  const grid=document.getElementById('seqGrid'); grid.innerHTML='';
+  const steps=App.seq.steps;
+  for(let ti=0;ti<App.seq.tracks.length;ti++){
+    const tr=App.seq.tracks[ti];
+    const row=el('div','seq-row');
+    const rn=el('div','rn','T'+(ti+1));
+    rn.addEventListener('click',()=>{ tr.mute=!tr.mute; row.dataset.muted=tr.mute?1:0; });
+    row.appendChild(rn);
+    for(let s=0;s<steps;s++){
+      const cell=el('div','step'+((s%4===0)?' beat':''));
+      if(tr.pattern[s]) cell.classList.add('on');
+      cell.addEventListener('click',()=>{ App.seq.toggle(ti,s); cell.classList.toggle('on'); });
+      cell.addEventListener('wheel',(e)=>{ e.preventDefault();
+        const d=e.deltaY<0?1:-1; tr.note=clamp(tr.note+d,24,96); buildSeqGrid(); },{passive:false});
+      row.appendChild(cell);
+    }
+    grid.appendChild(row);
+  }
+  App.seq._onStep=(idx)=>{
+    const rows=grid.querySelectorAll('.seq-row');
+    rows.forEach((r,ti)=>{ r.querySelectorAll('.step').forEach((c,si)=>{ c.classList.toggle('cur',si===idx&&App.seq.running); }); });
+  };
+}
+
+/* ============================================================
+   App：装配 + bootstrap
+   ============================================================ */
+const App={
+  eng:null, vm:null, kb:null, seq:null, viz:null, rec:null,
+  async start(){
+    State.init();
+    this.eng=new AudioEngine(); await this.eng.init();
+    this.vm=new VoiceManager(this.eng);
+    this.seq=new Sequencer(this.eng,this.vm);
+    this.rec=new Recorder(this.eng);
+    UI.build();
+    this.kb=new VirtualKeyboard(document.getElementById('keyboard'),this.vm);
+    this.viz=new Visualizer(this.eng); this.viz.start();
+    buildSeqGrid();
+    /* wheels + xypad */
+    this.wheels=setupWheels(this.vm);
+    this.xypad=setupXYPad();
+    /* MIDI */
+    MIDI.init(this.vm).then(ok=>{ document.getElementById('ledMidi').classList.toggle('on',ok); });
+    document.getElementById('ledAudio').classList.add('on');
+    /* hide splash */
+    document.getElementById('splash').classList.add('hide');
+    setTimeout(()=>document.getElementById('splash').remove(),600);
+    toast('NEXUS 已就绪 · 开始弹奏');
+  },
+  applyPreset(p){
+    State.params=p;
+    /* 重建 UI 控件值 */
+    syncAllKnobs();
+    document.getElementById('filterType').value=p.filter.type;
+    document.getElementById('lfoWave').value=p.lfo.wave;
+    ['tSub','tNoise','tLfo'].forEach(()=>{});
+    document.getElementById('tSub').classList.toggle('on',p.sub.on);
+    document.getElementById('tNoise').classList.toggle('on',p.noise.on);
+    document.getElementById('tLfo').classList.toggle('on',p.lfo.on);
+    /* FX toggles */
+    document.querySelectorAll('.fx-unit .toggle').forEach((t,i)=>{
+      const keys=['distortion','bitcrush','chorus','delay','reverb'];
+      if(keys[i]) t.classList.toggle('on',!!p.fx[keys[i]].on);
+    });
+    /* osc toggles */
+    document.querySelectorAll('.osc-unit .toggle').forEach((t,i)=>{ t.classList.toggle('on',!!p['osc'+i].on); });
+    /* 推送到引擎 */
+    if(this.eng){ this.eng.setMaster(p.master.volume);
+      ['distortion','bitcrush','chorus','delay','reverb','eq'].forEach(k=>{
+        this.eng.setFX(k+'.on',p.fx[k].on);
+        Object.keys(p.fx[k]).forEach(sub=>{ if(sub!=='on') this.eng.setFX(k+'.'+sub,p.fx[k][sub]); });
+      });
+    }
+    drawEnvGraph('ampEnv','cvAmpEnv'); drawEnvGraph('filterEnv','cvFilterEnv');
+  }
+};
+
+function syncAllKnobs(){
+  /* 把 State 当前值刷回所有旋钮（预设应用后） */
+  function setKnob(k,val){ if(k){ k.value=clamp(val,k.min,k.max); k.redraw(); } }
+  /* osc */
+  for(let i=0;i<3;i++){ const k=UI.knobs['osc'+i]; if(!k)continue;
+    setKnob(k[0],State.get('osc'+i+'.semi')); setKnob(k[1],State.get('osc'+i+'.detune'));
+    setKnob(k[2],State.get('osc'+i+'.level')); setKnob(k[3],State.get('osc'+i+'.unison')); setKnob(k[4],State.get('osc'+i+'.spread'));
+  }
+  setKnob(UI.knobs.filter&&UI.knobs.filter.cutoff,State.get('filter.cutoff'));
+  setKnob(UI.knobs.filter&&UI.knobs.filter.reso,State.get('filter.reso'));
+  setKnob(UI.knobs.filter&&UI.knobs.filter.envAmt,State.get('filter.envAmt'));
+  ['ampEnv','filterEnv'].forEach(e=>{['a','d','s','r'].forEach(k=>setKnob(UI.knobs[e]&&UI.knobs[e][k],State.get(e+'.'+k)));});
+  setKnob(UI.knobs.lfo&&UI.knobs.lfo.freq,State.get('lfo.freq'));
+  setKnob(UI.knobs.lfo&&UI.knobs.lfo.toPitch,State.get('lfo.toPitch'));
+  setKnob(UI.knobs.lfo&&UI.knobs.lfo.toCutoff,State.get('lfo.toCutoff'));
+  setKnob(UI.knobs.lfo&&UI.knobs.lfo.toAmp,State.get('lfo.toAmp'));
+  setKnob(UI.knobs.master,State.get('master.volume'));
+  Object.keys(UI.knobs.fx||{}).forEach(key=>{ const [u,nm]=key.split('.'); setKnob(UI.knobs.fx[key],State.get('fx.'+key)); });
+}
+
+/* ---- pitch / mod wheels ---- */
+function setupWheels(vm){
+  const pw=document.getElementById('pitchWheel'), mw=document.getElementById('modWheel');
+  const pwi=pw.querySelector('i'), mwi=mw.querySelector('i');
+  let pVal=0,mVal=0;
+  const setRot=(el,deg)=>{ el.style.transform=`translate(-50%,-100%) rotate(${deg}deg)`; el.style.transformOrigin='bottom center'; };
+  const bind=(host,fn)=>{
+    let sy=0;
+    host.addEventListener('pointerdown',(e)=>{ sy=e.clientY; host.setPointerCapture(e.pointerId);
+      const mm=(ev)=>{ const dy=sy-ev.clientY; sy=ev.clientY; fn(clamp(dy*0.015,-1,1),true); };
+      const up=(ev)=>{ host.releasePointerCapture(e.pointerId); window.removeEventListener('pointermove',mm); window.removeEventListener('pointerup',up); fn(0,false,true); };
+      window.addEventListener('pointermove',mm); window.addEventListener('pointerup',up);
+    });
+  };
+  bind(pw,(v,adj,rel)=>{ pVal=adj?clamp(pVal+v,0,1):v; const deg=(pVal-0.5)*120; pwi.style.transform=`rotate(${deg}deg)`; pwi.style.transformOrigin='center bottom';
+    vm.setBend((pVal-0.5)*2*State.get('bendRange'));
+    if(rel){ /* snap center */ pVal=0.5; pwi.style.transform='rotate(0deg)'; vm.setBend(0); } });
+  bind(mw,(v,adj,rel)=>{ mVal=adj?clamp(mVal+v,0,1):v; const deg=(mVal-0.5)*120; mwi.style.transform=`rotate(${deg}deg)`; mwi.style.transformOrigin='center bottom';
+    /* mod → LFO toCutoff 强度 */
+    State.set('lfo.toCutoff',mVal*3000); App.vm&&App.vm.liveUpdate('lfo.toCutoff',mVal*3000);
+    if(UI.knobs.lfo) setK(UI.knobs.lfo.toCutoff,mVal*3000);
+    if(rel){ mVal=0.5; mwi.style.transform='rotate(0deg)'; }
+  });
+  function setK(k,val){ k.value=clamp(val,k.min,k.max); k.redraw(); }
+  pwi.style.transformOrigin='center bottom'; mwi.style.transformOrigin='center bottom';
+  pVal=0.5; mVal=0.5;
+}
+function setupXYPad(){
+  const pad=document.getElementById('xyPad');
+  const xKnob=UI.knobs.filter.cutoff, yKnob=UI.knobs.filter.reso;
+  return new XYPad(pad,xKnob,yKnob);
+}
+
+/* octave buttons */
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('octDown').addEventListener('click',()=>App.kb&&App.kb.shiftOct(-1));
+  document.getElementById('octUp').addEventListener('click',()=>App.kb&&App.kb.shiftOct(1));
+});
+
+/* 调试接口（便于自动化验证；无副作用，不影响生产功能） */
+if(typeof window!=='undefined'){ window.__NEXUS={App,State,VoiceManager,Voice,AudioEngine,DSP}; }
+
+/* ---- splash start ---- */
+document.getElementById('startBtn').addEventListener('click',async()=>{
+  const btn=document.getElementById('startBtn'); btn.disabled=true; btn.textContent='启动中…';
+  try{ await App.start(); }
+  catch(e){ console.error('[NEXUS] 启动失败',e); btn.disabled=false; btn.textContent='▸ 重试'; toast('启动失败：'+e.message); }
+});
+
+})();
+</script>
+</body>
+</html>
