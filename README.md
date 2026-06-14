@@ -4,6 +4,8 @@
 
 浏览器打开即用，无需安装、无需联网。
 
+🎹 **[→ 在线试弹 Demo（GitHub Pages）](https://niasand.github.io/webaudio-synth/synth.html)**
+
 ![tech](https://img.shields.io/badge/WebAudio-native-3dd2c0) ![deps](https://img.shields.io/badge/dependencies-0-blue) ![file](https://img.shields.io/badge/single%20file-synth.html-orange)
 
 ---
