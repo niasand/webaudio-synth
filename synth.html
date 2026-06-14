@@ -146,6 +146,19 @@ button.btn.sm{padding:4px 8px;font-size:10px;}
 /* mini selects / toggles inline */
 .sel{background:var(--bezel);color:var(--text);border:1px solid #20242b;border-radius:4px;padding:3px 4px;font-size:10px;font-family:var(--font-mono);outline:none;}
 .sel option{background:#15181d;}
+/* 隐藏由自定义下拉接管的原生 select */
+select.csel-native{display:none !important;}
+.csel{position:relative;display:inline-block;vertical-align:middle;}
+.csel-trig{display:inline-flex;align-items:center;gap:5px;background:linear-gradient(180deg,var(--panel-top),var(--panel-2));color:var(--text);border:1px solid var(--edge);border-radius:5px;padding:5px 9px;font-family:var(--font-mono);font-size:10px;cursor:pointer;letter-spacing:.5px;white-space:nowrap;box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 2px 4px rgba(0,0,0,.4);transition:border-color .1s,color .1s;}
+.csel-trig:hover{border-color:var(--edge-hi);color:#fff;}
+.csel-label{text-align:left;}
+.csel-arrow{color:var(--accent);font-size:8px;transition:transform .15s;}
+.csel.open .csel-arrow{transform:rotate(180deg);}
+.csel-list{position:absolute;top:calc(100% + 4px);left:0;min-width:100%;background:var(--panel-2);border:1px solid var(--edge-hi);border-radius:5px;box-shadow:var(--shadow);padding:4px;z-index:50;max-height:220px;overflow:auto;display:none;}
+.csel.open .csel-list{display:block;}
+.csel-item{padding:5px 10px;font-family:var(--font-mono);font-size:10px;color:var(--text);border-radius:3px;cursor:pointer;white-space:nowrap;letter-spacing:.5px;}
+.csel-item:hover{background:var(--panel-top);}
+.csel-item.cur{color:var(--accent);background:rgba(61,210,192,.12);box-shadow:inset 2px 0 0 var(--accent);}
 .toggle{
   position:relative;width:30px;height:16px;border-radius:9px;cursor:pointer;
   background:#0a0d10;border:1px solid #20242b;transition:all .15s;flex:0 0 auto;
@@ -1242,6 +1255,45 @@ const Presets={
 /* ============================================================
    UI 构建：把旋钮/控件挂到 DOM，并 wire 到 State/Engine/VM
    ============================================================ */
+/* 自定义下拉框：包装原生 <select>，深色拟物风格，保持原生 .value / change 语义不变 */
+function enhanceSelect(sel){
+  if(sel._csel) return sel._csel;
+  sel.classList.add('csel-native');
+  const wrap=el('div','csel');
+  const trig=el('button','csel-trig'); trig.type='button';
+  const label=el('span','csel-label');
+  const arrow=el('span','csel-arrow','▾');
+  trig.appendChild(label); trig.appendChild(arrow);
+  const list=el('div','csel-list');
+  const render=()=>{
+    list.innerHTML='';
+    const opts=Array.from(sel.options);
+    opts.forEach(opt=>{
+      const item=el('div','csel-item'+(opt.selected?' cur':''));
+      item.textContent=opt.textContent;
+      item.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        if(sel.value!==opt.value){ sel.value=opt.value; sel.dispatchEvent(new Event('change',{bubbles:true})); }
+        close();
+      });
+      list.appendChild(item);
+    });
+    const cur=opts[sel.selectedIndex]||opts[0];
+    label.textContent=cur?cur.textContent:'';
+  };
+  let open=false;
+  const openFn=()=>{ open=true; wrap.classList.add('open'); document.addEventListener('mousedown',onOut,true); };
+  const close=()=>{ open=false; wrap.classList.remove('open'); document.removeEventListener('mousedown',onOut,true); };
+  const onOut=(e)=>{ if(!wrap.contains(e.target)) close(); };
+  trig.addEventListener('click',(e)=>{ e.stopPropagation(); open?close():openFn(); });
+  wrap.appendChild(trig); wrap.appendChild(list);
+  if(sel.parentNode) sel.parentNode.insertBefore(wrap,sel.nextSibling);
+  render();
+  sel.addEventListener('change',render);
+  new MutationObserver(render).observe(sel,{childList:true,subtree:true,attributes:true,attributeFilter:['selected']});
+  sel._csel={render,wrap};
+  return sel._csel;
+}
 const UI={ knobs:{}, envCanvases:{} };
 
 /* 通用的「旋钮 → State+引擎」绑定器 */
@@ -1391,6 +1443,8 @@ UI.build=function(){
     else { const blob=await App.rec.stop(); recBtn.classList.remove('active'); recBtn.textContent='● 录音';
       if(blob){ const a=el('a'); a.href=URL.createObjectURL(blob); a.download='nexus-recording.'+(blob.type.includes('webm')?'webm':'mp4'); a.click(); toast('录音已导出'); } }
   });
+  /* 所有原生 select 接管为自定义深色下拉 */
+  document.querySelectorAll('select').forEach(enhanceSelect);
 };
 
 function refreshUserPresets(){
@@ -1557,6 +1611,7 @@ const App={
       });
     }
     drawEnvGraph('ampEnv','cvAmpEnv'); drawEnvGraph('filterEnv','cvFilterEnv');
+    document.querySelectorAll('select').forEach(s=>{ if(s._csel) s._csel.render(); });
   }
 };
 
