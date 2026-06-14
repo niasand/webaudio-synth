@@ -88,9 +88,10 @@ button.btn.sm{padding:4px 8px;font-size:10px;}
 /* ---------- workspace ---------- */
 .workspace{
   flex:1 1 auto; min-height:0;
+  overflow:auto;              /* 矮窗口内容超出时内部滚动，避免溢出覆盖键盘栏 */
   display:grid;
   grid-template-columns: 1fr 1fr 1fr 320px;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto minmax(190px,1fr);  /* seq 行最小高度，防过度压缩后内容突破 */
   gap:8px;
   grid-template-areas:
     "osc   filter env   viz"
