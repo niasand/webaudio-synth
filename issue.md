@@ -41,3 +41,23 @@
 5. splash 提示文字与实际 QWERTY 映射不符 → 修正。
 
 **教训**：大单文件写完务必做一次静态自审（grep 局部变量泄漏、onChange 覆盖、键映射冲突），配合 `node --check` 兜底语法。
+
+## [2026-06-14] CSS grid 布局溢出覆盖：矮窗口下音序器盖住键盘栏
+
+**现象**：用户报告"左下角 UI 被覆盖"。在标准尺寸（1600×980 等）肉眼看不出问题，视觉模型也判断正常。
+
+**根因**：`.workspace`（grid 布局）没有 overflow 处理。窗口较矮时，网格内容总高度（实测 scrollH 765px）超过可用高度（~450px），默认 `overflow:visible` 让底部行（音序器的 step grid）**视觉溢出到下方的键盘栏区域**造成"覆盖"。注意：键盘与左侧八度/弯音轮其实从未重叠（DOM rect 一直没重叠），是音序器格子越界——极具迷惑性。
+
+**修复**（2 行 CSS）：
+- `.workspace { overflow:auto }`：内容超高时内部滚动，不溢出到键盘栏。
+- seq 行 `grid-template-rows: auto auto minmax(190px,1fr)`：保证音序器最小高度，防 1fr 过度压缩。
+
+**涉及文件**：`synth.html`（`.workspace` 规则）
+
+**验证证据**：Playwright `getBoundingClientRect` 实测——1366×640 下 `.seq-grid` 底部从 592px（越界压住键盘栏 top 518px，+74px）→ 501px（留 17px 间隙）。1280×600 / 1600×980 同样不再重叠。
+
+**教训（通用铁律）**：
+- **"UI 被覆盖"类 bug，先用 `getBoundingClientRect` 量 rect 找越界元素，别只靠肉眼看/截图猜**——本案肉眼和视觉模型在标准尺寸都看不出，rect 才定位到 seq-grid 越界。
+- **flex/grid 容器要显式设 overflow**：内容可能超高的布局区（工作台、面板网格），默认 `overflow:visible` 会让子内容溢出覆盖相邻 flex 项。用 `overflow:auto`（滚动）或 `hidden`（裁剪）兜底。
+- **响应式要测极端尺寸**：标准尺寸正常的布局，在矮窗口（高 600–640）/窄窗口/移动端可能崩。验收用 Playwright 跑一组尺寸（1366×640、1280×600、375×812）截图 + 量 rect。
+- **grid 行用 minmax 防 1fr 过度压缩**：纯 `1fr` 空间不足时压到 0、内容溢出；`minmax(minH, 1fr)` 保底。
